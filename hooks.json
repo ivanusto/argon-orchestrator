@@ -1,0 +1,24 @@
+{
+  "argon-orchestrator": {
+    "enabled": true,
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python3 ./scripts/enforce-orchestrator.py session-start",
+        "timeout": 10
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "invoke_subagent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./scripts/enforce-orchestrator.py pre-tool-use",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

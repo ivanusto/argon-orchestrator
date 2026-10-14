@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" fill="none">
+  <defs>
+    <linearGradient id="argonCore" x1="20" y1="16" x2="108" y2="112" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7C4DFF"/>
+      <stop offset="50%" stop-color="#448AFF"/>
+      <stop offset="100%" stop-color="#00E5FF"/>
+    </linearGradient>
+    <linearGradient id="flashNode" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFD740"/>
+      <stop offset="100%" stop-color="#FF6D00"/>
+    </linearGradient>
+    <linearGradient id="liteNode" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#69F0AE"/>
+      <stop offset="100%" stop-color="#00BFA5"/>
+    </linearGradient>
+  </defs>
+  <!-- Outer hexagonal orchestrator ring with >10% margin -->
+  <polygon points="64,16 106,40 106,88 64,112 22,88 22,40" stroke="url(#argonCore)" stroke-width="4" fill="rgba(68, 138, 255, 0.10)"/>
+  <!-- Connection spokes from Argon core to subagent nodes -->
+  <line x1="64" y1="52" x2="34" y2="82" stroke="#FFD740" stroke-width="3" stroke-linecap="round"/>
+  <line x1="64" y1="52" x2="94" y2="82" stroke="#69F0AE" stroke-width="3" stroke-linecap="round"/>
+  <line x1="64" y1="52" x2="64" y2="94" stroke="#00E5FF" stroke-width="2.5" stroke-dasharray="4 4" stroke-linecap="round"/>
+  <!-- Primary Argon Hub Node -->
+  <circle cx="64" cy="46" r="16" fill="url(#argonCore)" stroke="#FFFFFF" stroke-width="2.5"/>
+  <text x="64" y="51" text-anchor="middle" fill="#FFFFFF" font-family="sans-serif" font-weight="700" font-size="13">Ar</text>
+  <!-- Flash Worker Node (Left) -->
+  <circle cx="34" cy="84" r="11" fill="url(#flashNode)" stroke="#FFFFFF" stroke-width="2"/>
+  <path d="M35 77 L29 85 H34 L33 91 L39 83 H34 Z" fill="#FFFFFF"/>
+  <!-- Flash-Lite Scout Node (Right) -->
+  <circle cx="94" cy="84" r="11" fill="url(#liteNode)" stroke="#FFFFFF" stroke-width="2"/>
+  <circle cx="94" cy="84" r="4" fill="#FFFFFF"/>
+</svg>

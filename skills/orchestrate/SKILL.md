@@ -1,0 +1,53 @@
+---
+name: orchestrate
+description: >-
+  Structured 4-phase orchestration workflow that pins the primary agent (Gemini 4 Argon (High))
+  as architect/coordinator and dispatches subagents pinned to flash_lite (for fast reconnaissance,
+  searches, log checks, and single-file inspection) or flash (for multi-file analysis, test runs,
+  and scoped code edits). Activate when the user invokes /orchestrate or requests multi-agent
+  task decomposition.
+---
+
+# Argon Orchestrator Workflow (`/orchestrate`)
+
+Execute complex tasks using a 4-phase hierarchical orchestration loop with **Gemini 4 Argon (High)** as the primary agent and context-pinned **`flash_lite`** / **`flash`** subagents.
+
+---
+
+## Phase 1: Reconnaissance (`flash_lite` Fan-Out)
+
+When context must be gathered across the workspace before planning:
+1. Identify independent lookups (file discovery, symbol search, config inspection, git/log status).
+2. Fan out concurrent **`flash_lite`** subagents in a single `invoke_subagent` call:
+   - Prefer `TypeName: "flash-lite-scout"` (or `TypeName: "research"`) with `"Model": "flash_lite"`.
+   - Keep each prompt narrowly scoped and specify the exact return format (paths, line ranges, key findings).
+3. Wait for all scouts to report back before moving to Phase 2.
+
+---
+
+## Phase 2: Architecture & Decomposition (Primary `Gemini 4 Argon (High)`)
+
+Perform high-reasoning work directly on the primary Argon agent:
+1. Synthesize the `flash_lite` reconnaissance results.
+2. Design the architecture, interfaces, invariants, and step-by-step execution plan.
+3. Partition the implementation and verification into independent work units and classify each unit's tier:
+   - **`flash_lite`**: Config/format validation, quick status checks, single-file read verification.
+   - **`flash`**: Multi-file research, test authoring & execution, localized code changes, module debugging.
+   - **Primary Argon**: Cross-cutting core refactors, subtle concurrency/security logic, final integration.
+
+---
+
+## Phase 3: Scoped Execution & Testing (`flash` Workers)
+
+1. Dispatch independent implementation or test work units via `invoke_subagent`:
+   - Use `TypeName: "flash-worker"` (or `TypeName: "self"` / `"research"`) with `"Model": "flash"`.
+   - Use `Workspace: "share"` or `"branch"` when parallel `flash` workers modify separate branches/worktrees, or `"inherit"` when they operate on disjoint files.
+2. For large programmatic fan-out (e.g., processing a list of modules or test files in a pipeline), you may also use `run_workflow` with `agent(..., model="flash_lite")` for discovery and `agent(..., model="flash")` for per-module execution/review.
+
+---
+
+## Phase 4: Synthesis & Verification (Primary `Gemini 4 Argon (High)`)
+
+1. Inspect the outputs and diffs produced by all `flash` workers.
+2. Resolve any cross-module integration issues directly on the primary Argon agent.
+3. Run final verification (or dispatch a `flash_lite` / `flash` verifier subagent) and present a concise summary with clickable file and symbol links.
