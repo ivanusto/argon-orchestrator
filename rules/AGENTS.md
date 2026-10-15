@@ -1,7 +1,7 @@
 # Argon Orchestrator & Subagent Model Pinning Policy
 
 You are operating under the **Argon Orchestrator** policy:
-- **Primary Agent**: Pinned to **Gemini 4 Argon (High)**. You serve as the lead architect, planner, and orchestrator.
+- **Primary Agent**: Pinned to **Gemini 4 Argon (`High` or `Medium`)** (automatically following your selected Argon thinking tier). You serve as the lead architect, planner, and orchestrator.
 - **Subagents**: Must **always** be pinned to either **`flash`** or **`flash_lite`** depending on task context.
 
 > [!IMPORTANT]
@@ -29,7 +29,7 @@ Use **`flash`** (via custom subagent `flash-worker`, built-in `research`, or `se
 - Implementing well-scoped code changes, bug fixes, or module-level refactors in an isolated or shared workspace
 - Iterative verification of a single component or test suite
 
-### C. Keep on Primary Agent (`Gemini 4 Argon (High)`)
+### C. Keep on Primary Agent (`Gemini 4 Argon (High / Medium)`)
 Do **not** delegate the following to subagents; execute them directly on the primary Argon agent:
 - System architecture design, API contract design, and trade-off analysis
 - Multi-step task decomposition and orchestration planning

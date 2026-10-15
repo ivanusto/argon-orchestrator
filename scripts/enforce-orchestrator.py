@@ -3,8 +3,10 @@
 
 Modes:
 1. session-start:
-   - Ensures ~/.gemini/antigravity-cli/settings.json pins "Gemini 4 Argon (High)"
-     as the primary model (unless AGY_ALLOW_NON_ARGON_PRIMARY=1 is set).
+   - Ensures ~/.gemini/antigravity-cli/settings.json uses an allowed primary Argon
+     model ("Gemini 4 Argon (High)" or "Gemini 4 Argon (Medium)"), preserving whichever
+     tier the user selected in the UI/CLI (or restoring "Gemini 4 Argon (High)" if set
+     to a non-Argon model, unless AGY_ALLOW_NON_ARGON_PRIMARY=1 is set).
    - Injects a SessionStart systemMessage reminding the primary Argon agent of
      the subagent context-routing policy (flash_lite vs. flash).
 2. pre-tool-use:
@@ -23,7 +25,11 @@ import sys
 import tempfile
 from typing import Any, Dict, List, Tuple
 
-PRIMARY_MODEL = "Gemini 4 Argon (High)"
+DEFAULT_PRIMARY_MODEL = "Gemini 4 Argon (High)"
+ALLOWED_PRIMARY_MODELS = {
+    "Gemini 4 Argon (High)",
+    "Gemini 4 Argon (Medium)",
+}
 ALLOWED_SUBAGENT_MODELS = {"flash", "flash_lite"}
 
 FLASH_STRONG_PATTERNS = re.compile(
@@ -49,25 +55,36 @@ FLASH_LITE_PATTERNS = re.compile(
 
 
 def ensure_primary_model_pinned() -> Tuple[bool, str]:
-    """Ensure settings.json pins Gemini 4 Argon (High) as the primary model."""
-    if os.environ.get("AGY_ALLOW_NON_ARGON_PRIMARY") == "1":
-        return False, PRIMARY_MODEL
+    """Ensure settings.json uses Gemini 4 Argon (High or Medium) as the primary model."""
+    preferred = os.environ.get("AGY_ARGON_PRIMARY_MODEL", "").strip()
+    target_default = preferred if preferred in ALLOWED_PRIMARY_MODELS else DEFAULT_PRIMARY_MODEL
 
     settings_path = os.path.expanduser("~/.gemini/antigravity-cli/settings.json")
     if not os.path.exists(settings_path):
-        return False, PRIMARY_MODEL
+        return False, target_default
 
     try:
         with open(settings_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict):
-            return False, PRIMARY_MODEL
+            return False, target_default
 
-        current = data.get("model")
-        if current == PRIMARY_MODEL:
-            return False, PRIMARY_MODEL
+        current = str(data.get("model") or "").strip()
+        if os.environ.get("AGY_ALLOW_NON_ARGON_PRIMARY") == "1":
+            return False, current or target_default
 
-        data["model"] = PRIMARY_MODEL
+        # If AGY_ARGON_PRIMARY_MODEL is explicitly set, enforce that specific tier;
+        # otherwise automatically respect the user's choice between High and Medium.
+        if preferred in ALLOWED_PRIMARY_MODELS:
+            if current == preferred:
+                return False, current
+            target_model = preferred
+        else:
+            if current in ALLOWED_PRIMARY_MODELS:
+                return False, current
+            target_model = target_default
+
+        data["model"] = target_model
         dir_name = os.path.dirname(settings_path)
         fd, tmp_path = tempfile.mkstemp(dir=dir_name, prefix=".settings.", suffix=".tmp")
         try:
@@ -80,9 +97,9 @@ def ensure_primary_model_pinned() -> Tuple[bool, str]:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
             raise
-        return True, PRIMARY_MODEL
+        return True, target_model
     except Exception:
-        return False, PRIMARY_MODEL
+        return False, target_default
 
 
 def classify_subagent_tier(subagent: Dict[str, Any]) -> str:

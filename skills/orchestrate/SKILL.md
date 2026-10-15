@@ -1,7 +1,7 @@
 ---
 name: orchestrate
 description: >-
-  Structured 4-phase orchestration workflow that pins the primary agent (Gemini 4 Argon (High))
+  Structured 4-phase orchestration workflow that pins the primary agent (Gemini 4 Argon (High / Medium))
   as architect/coordinator and dispatches subagents pinned to flash_lite (for fast reconnaissance,
   searches, log checks, and single-file inspection) or flash (for multi-file analysis, test runs,
   and scoped code edits). Activate when the user invokes /orchestrate or requests multi-agent
@@ -10,7 +10,7 @@ description: >-
 
 # Argon Orchestrator Workflow (`/orchestrate`)
 
-Execute complex tasks using a 4-phase hierarchical orchestration loop with **Gemini 4 Argon (High)** as the primary agent and context-pinned **`flash_lite`** / **`flash`** subagents.
+Execute complex tasks using a 4-phase hierarchical orchestration loop with **Gemini 4 Argon (`High` or `Medium`)** as the primary agent and context-pinned **`flash_lite`** / **`flash`** subagents.
 
 ---
 
@@ -25,7 +25,7 @@ When context must be gathered across the workspace before planning:
 
 ---
 
-## Phase 2: Architecture & Decomposition (Primary `Gemini 4 Argon (High)`)
+## Phase 2: Architecture & Decomposition (Primary `Gemini 4 Argon (High / Medium)`)
 
 Perform high-reasoning work directly on the primary Argon agent:
 1. Synthesize the `flash_lite` reconnaissance results.
@@ -46,7 +46,7 @@ Perform high-reasoning work directly on the primary Argon agent:
 
 ---
 
-## Phase 4: Synthesis & Verification (Primary `Gemini 4 Argon (High)`)
+## Phase 4: Synthesis & Verification (Primary `Gemini 4 Argon (High / Medium)`)
 
 1. Inspect the outputs and diffs produced by all `flash` workers.
 2. Resolve any cross-module integration issues directly on the primary Argon agent.
