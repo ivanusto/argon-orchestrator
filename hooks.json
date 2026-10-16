@@ -8,9 +8,16 @@
         "timeout": 10
       }
     ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 ./scripts/enforce-orchestrator.py pre-invocation",
+        "timeout": 5
+      }
+    ],
     "PreToolUse": [
       {
-        "matcher": "invoke_subagent",
+        "matcher": "invoke_subagent|send_message|run_workflow|define_subagent|manage_subagents",
         "hooks": [
           {
             "type": "command",
@@ -18,6 +25,25 @@
             "timeout": 10
           }
         ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "invoke_subagent|manage_subagents",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./scripts/enforce-orchestrator.py post-tool-use",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 ./scripts/enforce-orchestrator.py stop",
+        "timeout": 5
       }
     ]
   }

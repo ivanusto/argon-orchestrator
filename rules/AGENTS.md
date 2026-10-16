@@ -1,55 +1,82 @@
 # Argon Orchestrator & Subagent Model Pinning Policy
 
 You are operating under the **Argon Orchestrator** policy:
-- **Primary Agent**: Pinned to **Gemini 4 Argon (`High` or `Medium`)** (automatically following your selected Argon thinking tier). You serve as the lead architect, planner, and orchestrator.
-- **Subagents**: Must **always** be pinned to either **`flash`** or **`flash_lite`** depending on task context.
+- **Primary Agent**: Pinned to **Gemini 4 Argon (`High` or `Medium`)**, following the thinking tier the user selected. You are the architect, planner and orchestrator.
+- **Subagents**: Always pinned to **`flash`** or **`flash_lite`** according to the routing matrix below.
 
 > [!IMPORTANT]
-> **Override of Default `inherit` Instruction**:
-> The user has explicitly requested that subagents NEVER use `Model: "inherit"` or `Model: "pro"`. Every `invoke_subagent` call (and every `agent()` call inside `run_workflow`) MUST explicitly set `Model` to either `"flash_lite"` or `"flash"` according to the Context Routing Matrix below.
+> Never pass `Model: "inherit"` or `Model: "pro"` to `invoke_subagent`, and never call `agent(...)` inside a `run_workflow` script without `model="flash"` or `model="flash_lite"`. The plugin's hooks rewrite or deny violations, but a prompt that is routed correctly the first time saves a whole subagent turn.
 
 ---
 
-## 1. Context Routing Matrix (`flash_lite` vs. `flash` vs. Primary Argon)
+## 1. Context Routing Matrix
 
-### A. Pin to `flash_lite` (`Model: "flash_lite"`)
-Use **`flash_lite`** (via custom subagent `flash-lite-scout` or built-in `research` with `Model: "flash_lite"`) when the delegated context involves **fast, bounded, low-complexity lookups**:
-- Locating files, symbols, definitions, or references across the workspace
-- Running targeted regex/grep searches or directory listings
-- Inspecting a single file or config and summarizing its structure
-- Checking logs, git history, or task/service status
-- Formatting, schema validation, or simple extraction tasks
-- High-fan-out reconnaissance where latency and token cost matter most
+### A. `flash_lite` via `TypeName: "flash-lite-scout"`
+Single-hop, read-only lookups:
+- Locating files, symbols, definitions or references
+- Targeted grep/glob searches and directory listings
+- Inspecting one file or config and summarizing its structure
+- `git status` / `git log` / log tail checks
+- High-fan-out reconnaissance where latency and cost matter
 
-### B. Pin to `flash` (`Model: "flash"`)
-Use **`flash`** (via custom subagent `flash-worker`, built-in `research`, or `self` with `Model: "flash"`) when the delegated context involves **moderate-complexity analysis or scoped execution**:
-- Multi-file codebase exploration, call-graph tracing, or root-cause analysis
-- External web research and documentation synthesis (`search_web`, `read_url_content`)
-- Writing and running unit, integration, or regression tests
-- Implementing well-scoped code changes, bug fixes, or module-level refactors in an isolated or shared workspace
-- Iterative verification of a single component or test suite
+`flash-lite-scout` has no write tools and no web tools. Prompts that contain mutation verbs (implement, refactor, edit, fix, patch, delete, ...) are automatically upgraded to `flash-worker` by the hook.
 
-### C. Keep on Primary Agent (`Gemini 4 Argon (High / Medium)`)
-Do **not** delegate the following to subagents; execute them directly on the primary Argon agent:
-- System architecture design, API contract design, and trade-off analysis
-- Multi-step task decomposition and orchestration planning
-- Complex, cross-cutting refactors with subtle invariants or concurrency/security implications
-- Resolving ambiguous user requirements (`ask_question`)
-- Synthesizing subagent findings, reviewing diffs, and delivering the final verified response
+### B. `flash` via `TypeName: "flash-worker"`
+Moderate-complexity analysis or scoped execution:
+- Multi-file exploration, call-graph tracing, root-cause analysis
+- Web and documentation research (`search_web`, `read_url_content`)
+- Writing and running unit, integration or regression tests
+- Scoped code changes, bug fixes, module-level refactors
+- Iterative verification of one component or test suite
+
+### C. Stay on the primary Argon agent
+- Architecture, API contract and trade-off decisions
+- Task decomposition and orchestration planning
+- Cross-cutting refactors with subtle invariants, concurrency or security implications
+- Resolving ambiguous requirements with the user (`ask_question`)
+- Synthesizing subagent reports, reviewing diffs, delivering the final answer
 
 ---
 
-## 2. Subagent Invocation Rules
+## 2. Invocation Rules
 
-1. **Always Specify `Model` Explicitly**:
-   - When calling `invoke_subagent`, always pass `"Model": "flash_lite"` or `"Model": "flash"` on every entry in `Subagents`.
-   - Never pass `"Model": "inherit"` or `"Model": "pro"`.
-2. **Prefer Purpose-Built Subagent Types**:
-   - Use `TypeName: "flash-lite-scout"` (with `Model: "flash_lite"`) for read-only lookups and fast reconnaissance.
-   - Use `TypeName: "flash-worker"` (with `Model: "flash"`) for multi-file research, test execution, and scoped file edits.
-   - If using `TypeName: "research"` or `TypeName: "self"`, still explicitly set `Model: "flash_lite"` or `Model: "flash"` based on the routing matrix above.
-3. **Parallel Fan-Out & Context Hygiene**:
-   - Launch independent `flash_lite` scouts or `flash` workers concurrently in a single `invoke_subagent` call.
-   - Give each subagent a self-contained `Prompt` with exact file paths, constraints, and expected return format so it does not waste turns rediscovering context.
-4. **Dynamic Workflows (`run_workflow`)**:
-   - When writing a Python workflow script for `run_workflow`, always pass `model="flash_lite"` or `model="flash"` to every `agent(...)` call.
+1. **Set `Model` explicitly** on every entry in `Subagents`: `"flash_lite"` or `"flash"`.
+2. **Prefer the bundled types**: `flash-lite-scout` for lookups, `flash-worker` for everything that researches across files, runs tests or edits code. If you use `research` or `self`, still set `Model` per the matrix.
+3. **Fan out in one call**: launch independent subagents together in a single `invoke_subagent`. End your turn right after `invoke_subagent` or `send_message`; do not poll with `manage_subagents`.
+4. **`send_message` follow-ups**: never send code-editing or multi-step (more than 3 numbered steps) instructions to a `flash_lite` scout. The hook denies them. Invoke a `flash-worker` instead.
+5. **Branch cleanup**: after a `Workspace: "branch"` worker reports, merge or discard its changes and call `manage_subagents` with `Action: "kill"`. The Stop hook will remind you once if any branch worker is still alive when you try to finish.
+6. **No nested spawning**: `define_subagent` calls that set `enable_subagent_tools: true` are rewritten to `false`.
+
+---
+
+## 3. Subagent Prompt Contract
+
+Write every `invoke_subagent` prompt and `send_message` instruction in this shape. Short imperative sentences, one instruction per numbered line, explicit file allowlist, explicit verification command.
+
+```markdown
+TASK: <single-sentence objective>
+
+RULES:
+1. Open `<file_path>`.
+2. <one imperative instruction, under 20 words>.
+3. Do not change any file outside `<allowed_files>`.
+4. Run `<test_command>` to check the result.
+5. On failure, write raw output to `<artifactDirectoryPath>/scratch/<task_id>.log`.
+
+REPORT FORMAT:
+Return only these four lines:
+STATUS: COMPLETED | BLOCKED | FAILED
+FILES_CHANGED: <comma-separated paths or NONE>
+VERIFICATION: <one sentence stating the command run and exit result>
+NOTES: <one sentence stating findings, or file:// log URI if BLOCKED/FAILED>
+```
+
+Scouts omit rules 3 to 5 and always report `FILES_CHANGED: NONE`. The four-line report is what keeps subagent output cheap to read back; do not ask subagents for prose summaries.
+
+---
+
+## 4. Primary-model guard
+
+- At session start the plugin reads `~/.gemini/antigravity-cli/settings.json` and warns if the primary model is not Argon. It does **not** rewrite the file unless `AGY_ARGON_PIN_SETTINGS=1` is set.
+- On every turn the plugin checks the live session model. If it is not Argon/Pro-tier you will receive one warning per invocation; relay it to the user and ask them to switch models before orchestrating.
+- `AGY_ALLOW_NON_ARGON_PRIMARY=1` silences both warnings.
