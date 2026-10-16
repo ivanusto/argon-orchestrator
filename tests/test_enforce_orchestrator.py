@@ -195,7 +195,8 @@ class TestStopAndKill(HookBase):
         first = eo.handle_stop(dict(self.payload, fullyIdle=True))
         self.assertEqual(first["decision"], "continue")
         self.assertIn(WORKER_CID, first["reason"])
-        second = eo.handle_stop(dict(self.payload, fullyIdle=True))
+        # agy bumps executionNum after a continue; the same live worker must not nag again
+        second = eo.handle_stop(dict(self.payload, fullyIdle=True, executionNum=2))
         self.assertEqual(second["decision"], "allow")
 
     def test_stop_allows_after_kill(self):
@@ -207,6 +208,69 @@ class TestStopAndKill(HookBase):
         self.spawn_branch()
         self.assertEqual(eo.handle_stop(dict(self.payload, fullyIdle=False))["decision"], "allow")
         self.assertEqual(eo.handle_stop(dict(self.payload, fullyIdle=True, terminationReason="USER_CANCELED"))["decision"], "allow")
+
+
+class TestArtifactSync(HookBase):
+    """Uses the exact file shapes agy 1.4.0 writes under <artifactDirectoryPath>/.system_generated."""
+
+    def write_meta(self, cid, type_name, role, alive=True, worktree=False):
+        d = Path(self.tmp.name) / ".system_generated" / "subagents"
+        d.mkdir(parents=True, exist_ok=True)
+        uri = (f"file:///x/worktrees/{CID}/subagent-{role.replace(' ', '-')}-{type_name}-7907511f"
+               if worktree else "file:///x/project")
+        (d / f"{cid}.json").write_text(json.dumps({
+            "conversationId": cid,
+            "subagentDescriptor": {"typeName": type_name, "role": role},
+            "state": "SUBAGENT_STATE_ALIVE" if alive else "SUBAGENT_STATE_KILLED",
+            "spawnStepIndex": 4,
+            "workspaceUris": [uri],
+        }), encoding="utf-8")
+
+    def spawn_two(self):
+        eo.handle_pre_tool_use(self.tool("invoke_subagent", {"Subagents": [
+            sub("Locate clamp.", type_name="flash-lite-scout", model="flash_lite", role="Clamp Function Scout"),
+            sub("Fix clamp and run the tests.", type_name="flash-worker", model="flash", workspace="branch", role="Clamp Bug Fixer"),
+        ]}))
+
+    def test_pairs_by_role_and_type_not_fifo(self):
+        self.spawn_two()
+        # worker file written first: FIFO would wrongly give it the scout record
+        self.write_meta(WORKER_CID, "flash-worker", "Clamp Bug Fixer", worktree=True)
+        self.write_meta(SCOUT_CID, "flash-lite-scout", "Clamp Function Scout")
+        eo.handle_post_tool_use(self.tool("invoke_subagent", {}))
+        st = eo.load_state(self.payload)
+        self.assertEqual(st["pending_spawns"], [])
+        self.assertEqual(st["subagents"][WORKER_CID]["model"], "flash")
+        self.assertTrue(st["subagents"][WORKER_CID]["active_branch"])
+        self.assertEqual(st["subagents"][SCOUT_CID]["model"], "flash_lite")
+        self.assertFalse(st["subagents"][SCOUT_CID]["active_branch"])
+
+    def test_killed_state_clears_active_branch_without_hook(self):
+        self.spawn_two()
+        self.write_meta(SCOUT_CID, "flash-lite-scout", "Clamp Function Scout")
+        self.write_meta(WORKER_CID, "flash-worker", "Clamp Bug Fixer", worktree=True)
+        self.assertEqual(eo.handle_stop(dict(self.payload, fullyIdle=True))["decision"], "continue")
+        self.write_meta(WORKER_CID, "flash-worker", "Clamp Bug Fixer", alive=False, worktree=True)
+        p2 = dict(self.payload, executionNum=2)
+        self.assertEqual(eo.handle_stop(dict(p2, fullyIdle=True))["decision"], "allow")
+
+    def test_unknown_subagent_without_pending_is_inferred(self):
+        self.write_meta(WORKER_CID, "flash-worker", "Ad hoc", worktree=True)
+        st = eo.load_state(self.payload)
+        eo.sync_subagents(self.payload, st)
+        self.assertEqual(st["subagents"][WORKER_CID]["workspace"], "branch")
+        self.assertTrue(st["subagents"][WORKER_CID]["active_branch"])
+
+    def test_transcript_fallback_matches_real_spawn_line(self):
+        self.spawn_two()
+        content = ("Created At: 2026-10-16T20:23:47+08:00\nCreated the following subagents:\n{\n"
+                   f"  \"conversationId\":  \"{SCOUT_CID}\",\n  \"logAbsoluteUri\": \"file:///x\"\n}}")
+        path = Path(self.tmp.name) / "transcript.jsonl"
+        path.write_text(json.dumps({"status": "DONE", "content": content}) + "\n", encoding="utf-8")
+        self.payload["transcriptPath"] = str(path)
+        st = eo.load_state(self.payload)
+        eo.sync_subagents_from_transcript(self.payload, st)
+        self.assertIn(SCOUT_CID, st["subagents"])
 
 
 class TestPrimaryModelGuard(HookBase):

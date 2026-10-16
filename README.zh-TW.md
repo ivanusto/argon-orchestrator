@@ -29,8 +29,8 @@
   | `PreToolUse` `send_message` | 拒絕對 `flash_lite` 收件者送出程式修改或多步驟（超過 3 條編號規則）的後續指令。 |
   | `PreToolUse` `run_workflow` | 拒絕 `agent(...)` 呼叫缺少 `model="flash"` / `model="flash_lite"` 的腳本。 |
   | `PreToolUse` `define_subagent` | 強制 `enable_subagent_tools=false`（禁止巢狀再生子代理）。 |
-  | `PostToolUse` | 從 transcript 把生成的子代理配對到 `conversationId`；生成失敗時回滾。 |
-  | `Stop` | 回合完全閒置時若仍有存活的 `Workspace:"branch"` worker，提醒一次先合併/捨棄並 kill。絕不阻擋使用者取消、錯誤或預算上限。 |
+  | `PostToolUse` | 以 agy 寫在 `<artifactDirectoryPath>/.system_generated/subagents/` 的中繼資料（型別、角色、存活狀態、worktree）配對子代理；生成失敗時回滾。 |
+  | `Stop` | 回合完全閒置時若仍有存活的 `Workspace:"branch"` worker，針對同一組 worker 只提醒一次，要求先合併/捨棄並 kill。絕不阻擋使用者取消、錯誤或預算上限。 |
 
 - **[`agents/`](./agents/)**：
   - **[`flash-lite-scout`](./agents/flash-lite-scout/agent.md)**：綁定 `model: flash_lite` 的唯讀偵察子代理；只有本機查找工具，無網路、無寫入。
@@ -45,6 +45,7 @@
 | `AGY_ARGON_PIN_SETTINGS=1` | 選擇性啟用：session 開始時把 `settings.json` 改回 Argon 模型（1.1.x 的行為）。 |
 | `AGY_ARGON_PRIMARY_MODEL` | 改寫時的目標模型：`Gemini 4 Argon (High)`（預設）或 `Gemini 4 Argon (Medium)`。 |
 | `AGY_ALLOW_NON_ARGON_PRIMARY=1` | 關閉所有主模型警告。 |
+| `AGY_ARGON_DEBUG=1` | 每次 hook 呼叫在 `<artifactDirectoryPath>/argon_orchestrator_debug.log` 追加一行 JSON（模式、工具、payload 欄位、決策）。 |
 
 ---
 
@@ -74,5 +75,7 @@ agy plugin install ~/argon-orchestrator
 python3 -m unittest discover -s tests -v
 agy plugin validate . --strict
 ```
+
+已於 2026-10-16 在 `agy` 1.4.0 實測：`SessionStart` 與 `PreInvocation` 提示確實進入模型上下文；實際模型 id 形如 `gemini-4-argon-high` / `gemini-3.8-flash-high`；`Stop` 會收到 `fullyIdle`、`executionNum` 與 `terminationReason`（正常結束回合為 `NO_TOOL_CALL`）；子代理中繼資料在 `manage_subagents(Action="kill")` 後由 `SUBAGENT_STATE_ALIVE` 變為 `SUBAGENT_STATE_KILLED`。
 
 版本紀錄見 [CHANGELOG.md](./CHANGELOG.md)。

@@ -16,9 +16,10 @@
 - **`send_message` guard**: denies mutation or multi-step (>3 numbered rules) instructions sent to a known `flash_lite` recipient.
 - **`run_workflow` guard**: denies scripts whose `agent(...)` calls omit `model="flash"` / `model="flash_lite"`.
 - **`define_subagent` guard**: forces `enable_subagent_tools=false` (no nested spawning).
-- **Branch worktree lifecycle tracking** via `PostToolUse` + `Stop`: pending spawns are paired with subagent `conversationId`s from the transcript; the `Stop` hook asks once per execution to merge/discard and kill live `Workspace:"branch"` workers.
+- **Branch worktree lifecycle tracking** via `PostToolUse` + `Stop`: pending spawns are paired with the per-subagent metadata agy writes under `<artifactDirectoryPath>/.system_generated/subagents/` (type, role, live state, worktree URI), with the transcript as fallback; the `Stop` hook asks once per set of live `Workspace:"branch"` workers to merge/discard and kill them (agy bumps `executionNum` after every `continue`, so per-execution dedup would nag on every attempt).
 - A `flash-lite-scout` invoked with a mutation prompt is upgraded to `flash-worker` instead of failing for lack of write tools.
-- `tests/test_enforce_orchestrator.py`: 23 unit tests, including a table of prompt → tier cases (the first three rows are the 1.1.0 misroutes).
+- `AGY_ARGON_DEBUG=1` writes one JSON line per hook call for diagnosing payloads.
+- `tests/test_enforce_orchestrator.py`: 27 unit tests, including a table of prompt → tier cases (the first three rows are the 1.1.0 misroutes).
 
 ## 1.1.0
 

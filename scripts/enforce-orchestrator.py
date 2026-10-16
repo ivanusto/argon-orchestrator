@@ -35,7 +35,7 @@ post-tool-use
 
 stop
     When the turn is fully idle and Workspace:"branch" workers are still active,
-    asks the primary agent (once per execution) to merge/discard and kill them
+    asks the primary agent (once per set of live branch workers) to merge/discard and kill them
     before finishing. Never blocks user cancellations, errors, or budget caps.
 
 Environment variables:
@@ -43,6 +43,8 @@ Environment variables:
     AGY_ARGON_PRIMARY_MODEL=<name>  target model when pinning (default: Gemini 4 Argon (High))
     AGY_ALLOW_NON_ARGON_PRIMARY=1   silence all primary-model warnings
     AGY_ANTIGRAVITY_SETTINGS=<path> override the settings.json location (tests)
+    AGY_ARGON_DEBUG=1               append one JSON line per hook call to
+                                    <artifactDirectoryPath>/argon_orchestrator_debug.log
 """
 
 import copy
@@ -170,7 +172,7 @@ def _empty_state() -> Dict[str, Any]:
         "warned_invocations": [],
         "pending_spawns": [],
         "subagents": {},
-        "stop_reminded_executions": [],
+        "stop_reminded_sets": [],
         "transcript_offset": 0,
     }
 
@@ -241,7 +243,7 @@ def sync_subagents_from_transcript(payload: Dict[str, Any], state: Dict[str, Any
                 if not pending:
                     continue
                 line = raw.decode("utf-8", errors="replace")
-                if "invoke_subagent" not in line:
+                if "invoke_subagent" not in line and "Created the following subagents" not in line:
                     continue
                 for match in CONVERSATION_ID_RE.finditer(line):
                     cid = match.group(1).lower()
@@ -253,6 +255,82 @@ def sync_subagents_from_transcript(payload: Dict[str, Any], state: Dict[str, Any
         state["transcript_offset"] = offset
     except OSError:
         return
+
+
+SUBAGENT_ALIVE_STATE = "SUBAGENT_STATE_ALIVE"
+
+
+def _subagent_metadata_dir(payload: Dict[str, Any]) -> Optional[Path]:
+    artifact_dir = payload.get("artifactDirectoryPath")
+    if not artifact_dir:
+        return None
+    path = Path(artifact_dir) / ".system_generated" / "subagents"
+    return path if path.is_dir() else None
+
+
+def sync_subagents_from_artifacts(payload: Dict[str, Any], state: Dict[str, Any]) -> bool:
+    """Pair pending spawns with <artifactDirectoryPath>/.system_generated/subagents/<cid>.json.
+
+    Antigravity writes one file per spawned subagent with its typeName, role,
+    live state and workspace URIs. This is authoritative, so it runs before the
+    transcript fallback. Returns True when the directory exists.
+    """
+    meta_dir = _subagent_metadata_dir(payload)
+    if meta_dir is None:
+        return False
+    pending: List[Dict[str, Any]] = state.setdefault("pending_spawns", [])
+    subagents: Dict[str, Dict[str, Any]] = state.setdefault("subagents", {})
+    try:
+        files = sorted(meta_dir.glob("*.json"), key=lambda f: f.stat().st_mtime)
+    except OSError:
+        return True
+    for file in files:
+        try:
+            with open(file, encoding="utf-8") as fh:
+                meta = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(meta, dict):
+            continue
+        cid = str(meta.get("conversationId") or file.stem).strip().lower()
+        descriptor = meta.get("subagentDescriptor") or {}
+        type_name = str(descriptor.get("typeName") or "").strip()
+        role = str(descriptor.get("role") or "").strip()
+        alive = str(meta.get("state") or "") == SUBAGENT_ALIVE_STATE
+        uris = meta.get("workspaceUris") or []
+        in_worktree = any("/worktrees/" in str(u) for u in uris)
+
+        record = subagents.get(cid)
+        if record is None:
+            # Prefer an exact (type, role) match, then a type match, then FIFO.
+            idx = next((i for i, p in enumerate(pending)
+                        if p.get("type", "").lower() == type_name.lower() and p.get("role") == role), None)
+            if idx is None:
+                idx = next((i for i, p in enumerate(pending)
+                            if p.get("type", "").lower() == type_name.lower()), None)
+            if idx is None and pending:
+                idx = 0
+            if idx is not None:
+                record = pending.pop(idx)
+            else:
+                record = {
+                    "role": role or type_name,
+                    "type": type_name,
+                    "model": "flash_lite" if type_name.lower() == SCOUT_TYPE else "flash",
+                    "workspace": "branch" if in_worktree else "inherit",
+                }
+            subagents[cid] = record
+        if in_worktree:
+            record["workspace"] = "branch"
+        record["alive"] = alive
+        record["active_branch"] = bool(record.get("workspace") == "branch" and alive)
+    return True
+
+
+def sync_subagents(payload: Dict[str, Any], state: Dict[str, Any]) -> None:
+    sync_subagents_from_artifacts(payload, state)
+    if state.get("pending_spawns"):
+        sync_subagents_from_transcript(payload, state)
 
 
 # ---------------------------------------------------------------------------
@@ -500,7 +578,7 @@ def _handle_send_message(payload: Dict[str, Any], args: Dict[str, Any]) -> Dict[
         return {"decision": "deny", "reason": "send_message.Message cannot be empty."}
 
     state = load_state(payload)
-    sync_subagents_from_transcript(payload, state)
+    sync_subagents(payload, state)
     save_state(payload, state)
 
     info = state.get("subagents", {}).get(recipient)
@@ -594,7 +672,7 @@ def _handle_manage_subagents(payload: Dict[str, Any], args: Dict[str, Any]) -> D
     if action not in {"kill", "kill_all"}:
         return {"decision": "allow"}
     state = load_state(payload)
-    sync_subagents_from_transcript(payload, state)
+    sync_subagents(payload, state)
     subagents = state.setdefault("subagents", {})
     pending = state.setdefault("pending_spawns", [])
     if action == "kill_all":
@@ -660,7 +738,7 @@ def handle_post_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
         else:
             state["pending_spawns"] = []
     else:
-        sync_subagents_from_transcript(payload, state)
+        sync_subagents(payload, state)
     save_state(payload, state)
     return {}
 
@@ -672,15 +750,18 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"decision": "allow"}
 
     state = load_state(payload)
-    sync_subagents_from_transcript(payload, state)
+    sync_subagents(payload, state)
     active = [cid for cid, m in state.get("subagents", {}).items() if m.get("active_branch")]
     active += [m.get("role", "worker") for m in state.get("pending_spawns", []) if m.get("active_branch")]
     if not active:
         save_state(payload, state)
         return {"decision": "allow"}
 
-    key = f"{payload.get('conversationId', '')}:{payload.get('executionNum', 0)}"
-    reminded: List[str] = state.setdefault("stop_reminded_executions", [])
+    # agy increments executionNum after every "continue", so keying on it would
+    # nag on every attempt. Remind once per distinct set of live branch workers:
+    # a new branch worker earns a new reminder, ignoring the same one does not.
+    key = ",".join(sorted(active))
+    reminded: List[str] = state.setdefault("stop_reminded_sets", [])
     if key in reminded:
         save_state(payload, state)
         return {"decision": "allow"}
@@ -698,6 +779,32 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # entry point
 # ---------------------------------------------------------------------------
+
+def _debug_log(payload: Dict[str, Any], mode: str, result: Dict[str, Any]) -> None:
+    """With AGY_ARGON_DEBUG=1, append one JSON line per hook call to the artifact directory."""
+    if not _env_flag("AGY_ARGON_DEBUG"):
+        return
+    path = _state_file(payload)
+    if not path:
+        return
+    tool_call = payload.get("toolCall") or {}
+    entry = {
+        "mode": mode,
+        "tool": tool_call.get("name"),
+        "modelName": payload.get("modelName"),
+        "invocationNum": payload.get("invocationNum"),
+        "executionNum": payload.get("executionNum"),
+        "fullyIdle": payload.get("fullyIdle"),
+        "terminationReason": payload.get("terminationReason"),
+        "payloadKeys": sorted(payload.keys()),
+        "result": result,
+    }
+    try:
+        with open(path.with_name("argon_orchestrator_debug.log"), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
 
 HANDLERS = {
     "session-start": handle_session_start,
@@ -724,6 +831,7 @@ def main() -> None:
     except Exception as exc:  # never break the agent loop because of the guard
         result = {"decision": "allow"} if mode in ("pre-tool-use", "stop") else {}
         sys.stderr.write(f"[argon-orchestrator] {mode} hook error: {exc!r}\n")
+    _debug_log(payload, mode, result)
 
     sys.stdout.write(json.dumps(result) + "\n")
     sys.stdout.flush()
