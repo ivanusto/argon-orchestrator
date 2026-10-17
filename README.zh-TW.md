@@ -83,3 +83,9 @@ agy plugin validate . --strict
 已於 2026-10-16 在 `agy` 1.4.0 實測：`SessionStart` 與 `PreInvocation` 提示確實進入模型上下文；實際模型 id 形如 `gemini-4-argon-high` / `gemini-3.8-flash-high`；`Stop` 會收到 `fullyIdle`、`executionNum` 與 `terminationReason`（正常結束回合為 `NO_TOOL_CALL`）；子代理中繼資料在 `manage_subagents(Action="kill")` 後由 `SUBAGENT_STATE_ALIVE` 變為 `SUBAGENT_STATE_KILLED`。
 
 版本紀錄見 [CHANGELOG.md](./CHANGELOG.md)。
+
+---
+
+## 授權
+
+[MIT](./LICENSE)

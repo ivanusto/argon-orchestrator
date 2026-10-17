@@ -83,3 +83,9 @@ agy plugin validate . --strict
 Verified live on `agy` 1.4.0 (2026-10-16): `SessionStart` and `PreInvocation` notices reach the model; the live model id arrives as e.g. `gemini-4-argon-high` / `gemini-3.8-flash-high`; `Stop` receives `fullyIdle`, `executionNum` and `terminationReason` (`NO_TOOL_CALL` on a normal end of turn); subagent metadata files flip from `SUBAGENT_STATE_ALIVE` to `SUBAGENT_STATE_KILLED` after `manage_subagents(Action="kill")`.
 
 See [CHANGELOG.md](./CHANGELOG.md) for release notes.
+
+---
+
+## License
+
+[MIT](./LICENSE)

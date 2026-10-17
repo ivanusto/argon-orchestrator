@@ -8,5 +8,6 @@
     "/orchestrate Decompose this task across flash-lite scouts and flash workers",
     "Recon the codebase with flash-lite subagents and design an implementation plan on Argon",
     "Run parallel flash subagents to implement and test changes across modules"
-  ]
+  ],
+  "license": "MIT"
 }
