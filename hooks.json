@@ -29,7 +29,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "invoke_subagent|manage_subagents",
+        "matcher": "invoke_subagent|manage_subagents|run_command",
         "hooks": [
           {
             "type": "command",

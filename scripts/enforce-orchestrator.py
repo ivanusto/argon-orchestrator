@@ -14,8 +14,8 @@ session-start
 pre-invocation
     Checks the live session model (payload.modelName) on every turn. If it is not
     Argon/Pro-tier, injects a one-time ephemeral warning per invocation so the
-    primary agent asks the user to switch models. This catches UI model switches
-    that happen after the session started.
+    primary agent asks the user to switch models. Resets per-turn tracking
+    (turn_edited_files, consecutive_failures).
 
 pre-tool-use
     invoke_subagent   -> context-classifies every subagent into flash / flash_lite
@@ -28,18 +28,23 @@ pre-tool-use
                          model="flash" / model="flash_lite".
     define_subagent   -> forces enable_subagent_tools=False (no nested spawning).
     manage_subagents  -> marks killed branch workers as cleaned up.
-    run_command / file tools
-                      -> "allow" when cwd, paths and command text stay inside
+    circuit breaker   -> denies run_command and invoke_subagent when consecutive
+                         failures reach >= 2.
+    context hygiene   -> blocks direct inspection of .log and transcript.jsonl
+                         files by the primary agent (delegates to flash-lite-scout).
+    fast-path budget  -> tracks direct workspace edits (max 3 by default) and blocks
+                         direct workspace edit + test-runner loops in the primary agent.
+    workspace guard   -> "allow" when cwd, paths and command text stay inside
                          workspacePaths or artifactDirectoryPath; "ask" for
                          paths outside, privilege escalation, destructive or
                          system-altering commands, force pushes, or downloads
-                         piped to a shell; {} (no opinion) for tools it does
-                         not inspect, so MCP/browser tools keep Antigravity's
-                         normal permission flow.
+                         piped to a shell; fallback returns explicit "allow"
+                         pass-through so tools are never denied by hook output.
 
 post-tool-use
     Rolls back pending spawns when invoke_subagent fails; otherwise pairs pending
-    spawns with the conversationIds that appear in the transcript.
+    spawns with the conversationIds that appear in the transcript. Tracks
+    consecutive failures across run_command and invoke_subagent for the circuit breaker.
 
 stop
     When the turn is fully idle and Workspace:"branch" workers are still active,
@@ -47,13 +52,17 @@ stop
     before finishing. Never blocks user cancellations, errors, or budget caps.
 
 Environment variables:
-    AGY_ARGON_PIN_SETTINGS=1        opt in to rewriting settings.json at session start
-    AGY_ARGON_PRIMARY_MODEL=<name>  target model when pinning (default: Gemini 4 Argon (High))
-    AGY_ALLOW_NON_ARGON_PRIMARY=1   silence all primary-model warnings
-    AGY_ANTIGRAVITY_SETTINGS=<path> override the settings.json location (tests)
-    AGY_ARGON_AUTO_ALLOW=1          enable the workspace scope guard (off by default)
-    AGY_ARGON_DEBUG=1               append one JSON line per hook call to
-                                    <artifactDirectoryPath>/argon_orchestrator_debug.log
+    AGY_ARGON_PIN_SETTINGS=1          opt in to rewriting settings.json at session start
+    AGY_ARGON_PRIMARY_MODEL=<name>    target model when pinning (default: Gemini 4 Argon (High))
+    AGY_ALLOW_NON_ARGON_PRIMARY=1     silence all primary-model warnings
+    AGY_ANTIGRAVITY_SETTINGS=<path>   override the settings.json location (tests)
+    AGY_ARGON_AUTO_ALLOW=1            enable the workspace scope guard (off by default)
+    AGY_ARGON_MAX_DIRECT_EDITS=<int>  max distinct workspace file edits per turn (default: 3)
+    AGY_ARGON_ALLOW_DIRECT_LOGS=1     allow primary agent to read raw logs and transcripts
+    AGY_ARGON_ALLOW_DIRECT_FASTPATH=1 allow primary agent direct edit-test loops and unlimited edits
+    AGY_ARGON_CIRCUIT_BREAKER=0       disable the 2-failure circuit breaker
+    AGY_ARGON_DEBUG=1                 append one JSON line per hook call to
+                                      <artifactDirectoryPath>/argon_orchestrator_debug.log
 """
 
 import copy
@@ -138,10 +147,115 @@ SAFE_TERMINATION_REASONS = {
     "MAX_TOKEN_BUDGET_EXCEEDED",
 }
 
+MAX_SUBAGENT_REPORT_CHARS = 1600
+MAX_REPORT_BULLET_LINES = 10
+REPORT_BULLET_RE = re.compile(r"^[-*]\s+\S+")
+REPORT_LOG_URI_RE = re.compile(r"file://\S+\.log\b", re.IGNORECASE)
+REPORT_LINE_PATTERNS = (
+    re.compile(r"^STATUS:\s*(?:COMPLETED|BLOCKED|FAILED)\b", re.IGNORECASE),
+    re.compile(r"^FILES_CHANGED:\s*\S+"),
+    re.compile(r"^VERIFICATION:\s*\S+"),
+    re.compile(r"^NOTES:\s*\S+"),
+)
+
+TEST_RUNNER_RE = re.compile(
+    r"\b(pytest|python(?:\d+(?:\.\d+)?)?\s+-m\s+unittest|npm\s+test|pnpm\s+test|yarn\s+test|vitest|jest|cargo\s+test|go\s+test)\b",
+    re.IGNORECASE,
+)
+LOG_OR_TRANSCRIPT_RE = re.compile(
+    r"(?:^|[/\\])(?:transcript(?:_full)?\.jsonl|[^/\\]+\.log)$",
+    re.IGNORECASE,
+)
+READ_TOOLS = {"view_file", "view_file_outline", "view_code_item"}
+MUTATION_TOOLS = {"write_to_file", "replace_file_content", "multi_replace_file_content"}
+
 
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
+
+def _allow(reason: str = "Argon Orchestrator: pass-through.", overrides: Optional[List[str]] = None) -> Dict[str, Any]:
+    res: Dict[str, Any] = {"decision": "allow", "reason": reason}
+    if overrides:
+        res["permissionOverrides"] = overrides
+    return res
+
+
+def _deny(reason: str) -> Dict[str, Any]:
+    return {"decision": "deny", "reason": reason}
+
+
+def _ask(reason: str) -> Dict[str, Any]:
+    return {"decision": "ask", "reason": reason}
+
+
+def is_primary_agent(payload: Dict[str, Any], state: Optional[Dict[str, Any]] = None) -> bool:
+    """Return True if caller is the primary orchestrator agent (not a subagent)."""
+    if payload.get("isSubagent") is True:
+        return False
+    cid = str(payload.get("conversationId") or "").strip().lower()
+    if state and cid and cid in state.get("subagents", {}):
+        return False
+    for wp in payload.get("workspacePaths") or []:
+        if "/worktrees/" in str(wp).replace("\\", "/"):
+            return False
+    return True
+
+
+def validate_subagent_report(text: str) -> Optional[str]:
+    """Validate that a subagent report strictly follows the 4-header bounded format.
+
+    Headers required:
+      STATUS: COMPLETED | BLOCKED | FAILED
+      FILES_CHANGED: <comma-separated paths or NONE>
+      VERIFICATION: <description of verification command and result>
+      NOTES: <single sentence summary or up to 10 bullet lines (- or *)>
+
+    Constraints:
+      - Total length <= 1600 characters.
+      - At most 10 bullet lines following NOTES:.
+      - If STATUS is BLOCKED or FAILED, NOTES must include a file:// URI to a .log file.
+
+    Returns None if valid, or an error description string if invalid.
+    """
+    stripped = (text or "").strip()
+    if not stripped:
+        return "Subagent report is empty."
+    if len(stripped) > MAX_SUBAGENT_REPORT_CHARS:
+        return (
+            f"Subagent report length ({len(stripped)} chars) exceeds maximum "
+            f"{MAX_SUBAGENT_REPORT_CHARS} chars."
+        )
+    lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+    max_lines = 4 + MAX_REPORT_BULLET_LINES
+    if len(lines) < 4:
+        return f"Expected at least 4 header lines (STATUS, FILES_CHANGED, VERIFICATION, NOTES), got {len(lines)}."
+    if len(lines) > max_lines:
+        return (
+            f"Expected at most 4 headers plus {MAX_REPORT_BULLET_LINES} bullet lines "
+            f"({max_lines} lines total), got {len(lines)}."
+        )
+
+    expected_prefixes = ("STATUS:", "FILES_CHANGED:", "VERIFICATION:", "NOTES:")
+    for idx, (pattern, prefix) in enumerate(zip(REPORT_LINE_PATTERNS, expected_prefixes), start=1):
+        if not pattern.match(lines[idx - 1]):
+            return f"Line {idx} must match '{prefix} <value>'."
+
+    bullet_lines = lines[4:]
+    for b_idx, b_line in enumerate(bullet_lines, start=5):
+        if not REPORT_BULLET_RE.match(b_line):
+            return f"Line {b_idx} after NOTES must be a compact bullet starting with '- ' or '* '."
+
+    status_match = re.match(r"^STATUS:\s*(\w+)", lines[0], re.IGNORECASE)
+    status_val = status_match.group(1).upper() if status_match else ""
+    if status_val in {"BLOCKED", "FAILED"}:
+        notes_body = lines[3].split(":", 1)[1].strip() if ":" in lines[3] else ""
+        combined_notes = " ".join([notes_body] + [b[1:].strip() for b in bullet_lines]).strip()
+        if not REPORT_LOG_URI_RE.search(combined_notes):
+            return f"When STATUS is {status_val}, NOTES must include a 'file://.../*.log' scratch log URI."
+
+    return None
+
 
 def is_argon_tier(model_name: str) -> bool:
     """True for Argon / Pro / Ultra models; False for Flash, Lite, Auto or empty."""
@@ -183,6 +297,8 @@ def _empty_state() -> Dict[str, Any]:
         "subagents": {},
         "stop_reminded_sets": [],
         "transcript_offset": 0,
+        "turn_edited_files": [],
+        "consecutive_failures": 0,
     }
 
 
@@ -437,10 +553,14 @@ def handle_session_start(_payload: Dict[str, Any]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
+    state = load_state(payload)
+    state["turn_edited_files"] = []
+    state["consecutive_failures"] = 0
+    save_state(payload, state)
+
     model_name = str(payload.get("modelName") or "")
     if not model_name or is_argon_tier(model_name) or _env_flag("AGY_ALLOW_NON_ARGON_PRIMARY"):
         return {}
-    state = load_state(payload)
     key = f"{payload.get('conversationId', '')}:{payload.get('invocationNum', 0)}"
     warned: List[str] = state.setdefault("warned_invocations", [])
     if key in warned:
@@ -824,27 +944,24 @@ def command_stays_in_workspace(command: str, cwd: str, roots: List[Path]) -> Tup
 def _handle_workspace_guard(payload: Dict[str, Any], tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
     # Opt-in: the plugin ships with the scope guard off. Set AGY_ARGON_AUTO_ALLOW=1
     # to let project-scoped file and command tools skip the permission prompt.
+    # When unset or for tools without path arguments, return an explicit "allow" pass-through.
     if not _env_flag("AGY_ARGON_AUTO_ALLOW"):
-        return {}
+        return _allow("Argon Orchestrator: pass-through.")
     roots = allowed_roots(payload)
     if not roots:
-        return {}
+        return _allow("Argon Orchestrator: pass-through.")
 
     if tool_name == "run_command":
         cwd = str(_get(args, "Cwd", "cwd", default="") or "")
         cmd = str(_get(args, "CommandLine", "commandLine", "command", default="") or "")
         if not cmd:
-            return {}
+            return _allow("Argon Orchestrator: pass-through.")
         if cwd and not _within_roots(cwd, roots):
-            return {"decision": "ask", "reason": "Argon Orchestrator: Cwd is outside the workspace."}
+            return _ask("Argon Orchestrator: Cwd is outside the workspace.")
         ok, why = command_stays_in_workspace(cmd, cwd, roots)
         if ok:
-            return {
-                "decision": "allow",
-                "reason": "Argon Orchestrator: command stays inside the workspace.",
-                "permissionOverrides": [f"command({cmd})"],
-            }
-        return {"decision": "ask", "reason": f"Argon Orchestrator: {why}."}
+            return _allow("Argon Orchestrator: command stays inside the workspace.", [f"command({cmd})"])
+        return _ask(f"Argon Orchestrator: {why}.")
 
     targets: List[Any] = []
     for key in PATH_ARG_KEYS:
@@ -856,29 +973,37 @@ def _handle_workspace_guard(payload: Dict[str, Any], tool_name: str, args: Dict[
         if isinstance(value, list):
             targets.extend(v for v in value if isinstance(v, str) and v)
     if not targets:
-        return {}
+        return _allow("Argon Orchestrator: pass-through.")
     outside = [t for t in targets if not _within_roots(t, roots)]
     if outside:
-        return {"decision": "ask", "reason": f"Argon Orchestrator: {outside[0]!r} is outside the workspace."}
+        return _ask(f"Argon Orchestrator: {outside[0]!r} is outside the workspace.")
     # "allow" alone does not satisfy Antigravity's permission system (headless
     # runs still auto-deny), so grant the matching read_file/write_file rule
     # for exactly these in-workspace paths.
     action = "write_file" if WRITE_TOOL_RE.search(tool_name) else "read_file"
-    return {
-        "decision": "allow",
-        "reason": "Argon Orchestrator: path is inside the workspace.",
-        "permissionOverrides": [f"{action}({t})" for t in targets],
-    }
+    return _allow("Argon Orchestrator: path is inside the workspace.", [f"{action}({t})" for t in targets])
 
 
 def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
     tool_call = payload.get("toolCall")
     if not isinstance(tool_call, dict):
-        return {}
+        return _allow("Argon Orchestrator: pass-through.")
     tool_name = str(tool_call.get("name") or "").strip()
     args = tool_call.get("args")
     if not isinstance(args, dict):
-        return {}
+        return _allow("Argon Orchestrator: pass-through.")
+
+    state = load_state(payload)
+
+    # Circuit breaker: if consecutive failures >= 2 and breaker is not disabled ("0"),
+    # block retry loops on commands and subagents.
+    if os.environ.get("AGY_ARGON_CIRCUIT_BREAKER") != "0":
+        fails = int(state.get("consecutive_failures") or 0)
+        if fails >= 2 and tool_name in ("run_command", "invoke_subagent"):
+            return _deny(
+                f"[Argon Orchestrator] Circuit breaker tripped after {fails} consecutive failure(s). "
+                "Stop retrying and report the blocker to the user."
+            )
 
     if tool_name == "invoke_subagent":
         return _handle_invoke_subagent(payload, args)
@@ -890,12 +1015,100 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
         return _handle_define_subagent(args)
     if tool_name == "manage_subagents":
         return _handle_manage_subagents(payload, args)
+
+    # Primary agent guards (context hygiene and fast-path budget)
+    if is_primary_agent(payload, state):
+        # Context hygiene: block direct reads of raw logs or transcripts by primary agent
+        if not _env_flag("AGY_ARGON_ALLOW_DIRECT_LOGS") and tool_name in READ_TOOLS:
+            target = str(
+                args.get("AbsolutePath")
+                or args.get("TargetFile")
+                or args.get("FilePath")
+                or args.get("Path")
+                or args.get("File")
+                or ""
+            )
+            if target and LOG_OR_TRANSCRIPT_RE.search(target.replace("\\", "/")):
+                return _deny(
+                    f"[Argon Orchestrator] Direct inspection of log/transcript file '{Path(target).name}' "
+                    "by the primary agent is blocked for context hygiene. "
+                    "Delegate log slicing to `flash-lite-scout` (TypeName='flash-lite-scout')."
+                )
+
+        # Fast-path budget: direct workspace file mutations and test-runner loops
+        if not _env_flag("AGY_ARGON_ALLOW_DIRECT_FASTPATH"):
+            if tool_name in MUTATION_TOOLS:
+                target = str(args.get("TargetFile") or args.get("AbsolutePath") or args.get("FilePath") or "")
+                artifact_dir = payload.get("artifactDirectoryPath")
+                is_artifact = False
+                if artifact_dir and target:
+                    try:
+                        is_artifact = _within_roots(target, [Path(artifact_dir)])
+                    except Exception:
+                        is_artifact = False
+                if target and not is_artifact:
+                    try:
+                        norm_target = str(Path(os.path.expanduser(target)).resolve())
+                    except Exception:
+                        norm_target = target
+                    edited: List[str] = state.setdefault("turn_edited_files", [])
+                    max_edits = int(os.environ.get("AGY_ARGON_MAX_DIRECT_EDITS") or 3)
+                    if norm_target not in edited and len(edited) >= max_edits:
+                        return _deny(
+                            f"[Argon Orchestrator] Direct workspace edit limit ({max_edits} files per turn) exceeded "
+                            f"when editing '{Path(target).name}'. Delegate multi-file modifications to `flash-worker` "
+                            "(TypeName='flash-worker', Model='flash')."
+                        )
+                    if norm_target not in edited:
+                        edited.append(norm_target)
+                        save_state(payload, state)
+
+            elif tool_name == "run_command":
+                cmd = str(_get(args, "CommandLine", "commandLine", "command", default="") or "").strip()
+                edited = state.get("turn_edited_files", [])
+                if edited and TEST_RUNNER_RE.search(cmd):
+                    return _deny(
+                        "[Argon Orchestrator] Direct workspace edit followed by test runner execution detected "
+                        f"in the primary agent ('{cmd}'). Delegate code editing and test execution loops "
+                        "to `flash-worker` (TypeName='flash-worker', Model='flash')."
+                    )
+
     return _handle_workspace_guard(payload, tool_name, args)
 
 
 # ---------------------------------------------------------------------------
 # post-tool-use / stop
 # ---------------------------------------------------------------------------
+
+def _tool_failed(tool_name: str, payload: Dict[str, Any]) -> bool:
+    if payload.get("error"):
+        return True
+    tool_result = payload.get("toolResult") or payload.get("result")
+    if isinstance(tool_result, dict):
+        exit_code = tool_result.get("exitCode")
+        if exit_code is None:
+            exit_code = tool_result.get("exit_code")
+        if exit_code is None:
+            exit_code = tool_result.get("returncode")
+        if exit_code is not None and exit_code != 0:
+            return True
+        if tool_result.get("error"):
+            return True
+        output = str(tool_result.get("output") or "")
+        if re.search(r"\bexited with code [1-9]", output):
+            return True
+        if tool_name == "invoke_subagent":
+            res_str = json.dumps(tool_result)
+            if re.search(r"STATUS:\s*(?:FAILED|BLOCKED)\b", res_str):
+                return True
+    elif isinstance(tool_result, str):
+        if re.search(r"\bexited with code [1-9]", tool_result):
+            return True
+        if tool_name == "invoke_subagent":
+            if re.search(r"STATUS:\s*(?:FAILED|BLOCKED)\b", tool_result):
+                return True
+    return False
+
 
 def handle_post_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
     tool_call = payload.get("toolCall") or {}
@@ -911,6 +1124,14 @@ def handle_post_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
             state["pending_spawns"] = []
     else:
         sync_subagents(payload, state)
+
+    # Track consecutive failures for the circuit breaker
+    if tool_name in ("run_command", "invoke_subagent"):
+        if _tool_failed(tool_name, payload):
+            state["consecutive_failures"] = int(state.get("consecutive_failures") or 0) + 1
+        else:
+            state["consecutive_failures"] = 0
+
     save_state(payload, state)
     return {}
 
@@ -1001,7 +1222,7 @@ def main() -> None:
     try:
         result = handler(payload) if handler else {}
     except Exception as exc:  # never break the agent loop because of the guard
-        result = {"decision": "allow"} if mode == "stop" else {}
+        result = {"decision": "allow"} if mode in ("stop", "pre-tool-use") else {}
         sys.stderr.write(f"[argon-orchestrator] {mode} hook error: {exc!r}\n")
     _debug_log(payload, mode, result)
 

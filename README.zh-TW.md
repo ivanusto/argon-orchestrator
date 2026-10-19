@@ -18,25 +18,26 @@
 
 ## 插件內含組件
 
-- **[`rules/AGENTS.md`](./rules/AGENTS.md)**：常駐規則：情境路由矩陣、呼叫規範、子代理四行回報合約，以及 branch worktree 清理規則。
+- **[`rules/AGENTS.md`](./rules/AGENTS.md)**：常駐規則：情境路由矩陣、呼叫規範、有界四欄位子代理回報合約，以及 branch worktree 清理規則。
 - **[`hooks.json`](./hooks.json) 與 [`scripts/enforce-orchestrator.py`](./scripts/enforce-orchestrator.py)**（Python 3.8+，僅用標準函式庫）：
 
   | Hook | 作用 |
   | :--- | :--- |
   | `SessionStart` | 讀取 `~/.gemini/antigravity-cli/settings.json`，主模型若非 Argon 就**警告**並注入政策提示。只有設定 `AGY_ARGON_PIN_SETTINGS=1` 才會改寫檔案。 |
-  | `PreInvocation` | 每回合檢查實際 session 模型；若非 Argon/Pro 層級，每次 invocation 警告一次（可抓到 session 開始後在 UI 切換模型的情況）。 |
-  | `PreToolUse` `invoke_subagent` | 依 `TypeName`、`Workspace`、`Role`、`Prompt` 把每個子代理分到 `flash` / `flash_lite`。強訊號（測試、除錯、追蹤、修改動詞）一律優先於查找關鍵字。`flash-lite-scout` 收到修改任務會自動升級為 `flash-worker`。 |
+  | `PreInvocation` | 每回合檢查實際 session 模型；若非 Argon/Pro 層級，每次 invocation 警告一次（可抓到 session 開始後在 UI 切換模型的情況）。重設每回合追蹤計數（`turn_edited_files`、`consecutive_failures`）。 |
+  | `PreToolUse` `invoke_subagent` | 依 `TypeName`、`Workspace`、`Role`、`Prompt` 把每個子代理分到 `flash` / `flash_lite`。強訊號（測試、除錯、追蹤、修改動詞）一律優先於查找關鍵字。`flash-lite-scout` 收到修改任務會自動升級為 `flash-worker`。熔斷器觸發時予以攔截。 |
   | `PreToolUse` `send_message` | 拒絕對 `flash_lite` 收件者送出程式修改或多步驟（超過 3 條編號規則）的後續指令。 |
   | `PreToolUse` `run_workflow` | 拒絕 `agent(...)` 呼叫缺少 `model="flash"` / `model="flash_lite"` 的腳本。 |
   | `PreToolUse` `define_subagent` | 強制 `enable_subagent_tools=false`（禁止巢狀再生子代理）。 |
-  | `PreToolUse` 其他工具（選擇性啟用，`AGY_ARGON_AUTO_ALLOW=1`） | 工作區範圍守衛：`run_command` 與檔案工具若 cwd、路徑與命令內容都在 `workspacePaths` / `artifactDirectoryPath` 內就回 `allow`；路徑在外、提權、遞迴刪除根目錄、更動系統、force push、下載後直接導入 shell 則回 `ask`；沒有路徑參數的工具（瀏覽器、MCP、網路）不表態。 |
-  | `PostToolUse` | 以 agy 寫在 `<artifactDirectoryPath>/.system_generated/subagents/` 的中繼資料（型別、角色、存活狀態、worktree）配對子代理；生成失敗時回滾。 |
+  | `PreToolUse` 情境整潔與快捷守衛 | 攔截主代理直接檢視 `.log` 或 `transcript.jsonl` 原始檔（指派給 `flash-lite-scout`）。限制主代理單回合直接修改工作區檔案至多 3 個，並禁止同回合內直接修改後執行測試框架（指派給 `flash-worker`）。 |
+  | `PreToolUse` 其他工具與工作區守衛 | 當 `AGY_ARGON_AUTO_ALLOW=1` 時，工作區內檔案與命令工具回 `allow`；外側路徑、提權等回 `ask`。未啟用或無路徑參數的工具直接回傳明確 `allow` 通行，絕不因 hook 輸出空白而遭軟拒絕。 |
+  | `PostToolUse` | 以中繼資料配對子代理；追蹤命令與子代理連續失敗次數以驅動熔斷器。 |
   | `Stop` | 回合完全閒置時若仍有存活的 `Workspace:"branch"` worker，針對同一組 worker 只提醒一次，要求先合併/捨棄並 kill。絕不阻擋使用者取消、錯誤或預算上限。 |
 
 - **[`agents/`](./agents/)**：
   - **[`flash-lite-scout`](./agents/flash-lite-scout/agent.md)**：綁定 `model: flash_lite` 的唯讀偵察子代理；只有本機查找工具，無網路、無寫入。
   - **[`flash-worker`](./agents/flash-worker/agent.md)**：綁定 `model: flash` 的研究與執行子代理；只修改提示詞允許清單內的檔案，失敗兩次即停止回報。
-  - 兩者都只回傳固定四行報告（`STATUS / FILES_CHANGED / VERIFICATION / NOTES`），讓主代理讀回的 token 降到最低。
+  - 兩者都回傳有界的四標頭報告（`STATUS / FILES_CHANGED / VERIFICATION / NOTES`，支援 `NOTES` 下至多 10 行清單條目，長度 $\le 1,600$ 字元，並於 `BLOCKED` 或 `FAILED` 時強制附帶 `file://` log 連結），讓主代理讀回的 token 降到最低。
 - **[`skills/orchestrate/SKILL.md`](./skills/orchestrate/SKILL.md)**：`/orchestrate` 四階段流程（`flash_lite` 偵察 → Argon 規劃 → `flash` 執行 → Argon 驗證與 branch 清理）。
 
 ### 環境變數
@@ -47,6 +48,10 @@
 | `AGY_ARGON_PRIMARY_MODEL` | 改寫時的目標模型：`Gemini 4 Argon (High)`（預設）或 `Gemini 4 Argon (Medium)`。 |
 | `AGY_ALLOW_NON_ARGON_PRIMARY=1` | 關閉所有主模型警告。 |
 | `AGY_ARGON_AUTO_ALLOW=1` | 啟用工作區範圍守衛（預設關閉）。 |
+| `AGY_ARGON_MAX_DIRECT_EDITS=<int>` | 主代理單回合直接修改工作區檔案數量上限（預設：3）。 |
+| `AGY_ARGON_ALLOW_DIRECT_LOGS=1` | 允許主代理直接讀取原始 `.log` 與 `transcript.jsonl` 檔。 |
+| `AGY_ARGON_ALLOW_DIRECT_FASTPATH=1` | 允許主代理繞過直接修改上限與修改後執行測試框架之限制。 |
+| `AGY_ARGON_CIRCUIT_BREAKER=0` | 停用 2 次失敗熔斷機制。 |
 | `AGY_ARGON_DEBUG=1` | 每次 hook 呼叫在 `<artifactDirectoryPath>/argon_orchestrator_debug.log` 追加一行 JSON（模式、工具、payload 欄位、決策）。 |
 
 ---

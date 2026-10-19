@@ -318,10 +318,6 @@ class TestPrimaryModelGuard(HookBase):
         self.assertIn("Primary model is 'Gemini 4 Argon (Medium)'", msg)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestWorkspaceGuard(HookBase):
     """Opt-in scope guard: project-scoped tools are allowed, everything else is asked or deferred."""
 
@@ -338,10 +334,10 @@ class TestWorkspaceGuard(HookBase):
     def guard(self, tool, args):
         return eo._handle_workspace_guard(self.payload, tool, args)
 
-    def test_disabled_by_default_gives_no_opinion(self):
+    def test_disabled_by_default_gives_pass_through_allow(self):
         os.environ.pop("AGY_ARGON_AUTO_ALLOW", None)
-        self.assertEqual(self.guard("write_to_file", {"TargetFile": str(self.ws / "src/a.py")}), {})
-        self.assertEqual(self.guard("run_command", {"CommandLine": "ls", "Cwd": str(self.ws)}), {})
+        self.assertEqual(self.guard("write_to_file", {"TargetFile": str(self.ws / "src/a.py")})["decision"], "allow")
+        self.assertEqual(self.guard("run_command", {"CommandLine": "ls", "Cwd": str(self.ws)})["decision"], "allow")
 
     def test_file_tool_inside_allowed_outside_asked(self):
         target = str(self.ws / "src/a.py")
@@ -361,10 +357,10 @@ class TestWorkspaceGuard(HookBase):
     def test_artifact_dir_is_a_root(self):
         self.assertEqual(self.guard("write_to_file", {"TargetFile": str(self.artifacts / "scratch/x.log")})["decision"], "allow")
 
-    def test_tools_without_paths_get_no_opinion(self):
-        self.assertEqual(self.guard("browser_click_element", {"Selector": "#ok"}), {})
-        self.assertEqual(self.guard("call_mcp_tool", {"ServerName": "x", "ToolName": "y"}), {})
-        self.assertEqual(eo.handle_pre_tool_use(self.tool("search_web", {"query": "x"})), {})
+    def test_tools_without_paths_get_pass_through_allow(self):
+        self.assertEqual(self.guard("browser_click_element", {"Selector": "#ok"})["decision"], "allow")
+        self.assertEqual(self.guard("call_mcp_tool", {"ServerName": "x", "ToolName": "y"})["decision"], "allow")
+        self.assertEqual(eo.handle_pre_tool_use(self.tool("search_web", {"query": "x"}))["decision"], "allow")
 
     def test_run_command_inside_allowed_with_override(self):
         res = self.guard("run_command", {"CommandLine": "python3 -m unittest discover -s tests", "Cwd": str(self.ws)})
@@ -402,6 +398,238 @@ class TestWorkspaceGuard(HookBase):
         # an ordinary rm inside the workspace is fine
         self.assertEqual(self.guard("run_command", {"CommandLine": "rm -rf build/", "Cwd": str(self.ws)})["decision"], "allow")
 
-    def test_no_roots_means_no_opinion(self):
+    def test_no_roots_means_pass_through_allow(self):
         p = dict(self.payload); p.pop("workspacePaths"); p.pop("artifactDirectoryPath")
-        self.assertEqual(eo._handle_workspace_guard(p, "write_to_file", {"TargetFile": "/x"}), {})
+        self.assertEqual(eo._handle_workspace_guard(p, "write_to_file", {"TargetFile": "/x"})["decision"], "allow")
+
+
+class TestContextHygieneAndFastPath(HookBase):
+    def setUp(self):
+        super().setUp()
+        self.ws = Path(self.tmp.name) / "project"
+        self.ws.mkdir(parents=True, exist_ok=True)
+        self.artifacts = Path(self.tmp.name) / "artifacts"
+        self.artifacts.mkdir(parents=True, exist_ok=True)
+        self.payload["workspacePaths"] = [str(self.ws)]
+        self.payload["artifactDirectoryPath"] = str(self.artifacts)
+        os.environ["AGY_ARGON_AUTO_ALLOW"] = "1"
+
+    def test_primary_agent_reading_log_or_transcript_denied(self):
+        for path in ("run.log", "debug.log", "transcript.jsonl", "transcript_full.jsonl", str(self.ws / "app.log")):
+            with self.subTest(path=path):
+                res = eo.handle_pre_tool_use(self.tool("view_file", {"AbsolutePath": path}))
+                self.assertEqual(res["decision"], "deny")
+                self.assertIn("context hygiene", res["reason"])
+
+    def test_primary_agent_reading_log_allowed_with_flag(self):
+        os.environ["AGY_ARGON_ALLOW_DIRECT_LOGS"] = "1"
+        res = eo.handle_pre_tool_use(self.tool("view_file", {"AbsolutePath": str(self.ws / "app.log")}))
+        self.assertEqual(res["decision"], "allow")
+
+    def test_subagent_reading_log_allowed(self):
+        self.payload["isSubagent"] = True
+        res = eo.handle_pre_tool_use(self.tool("view_file", {"AbsolutePath": str(self.ws / "app.log")}))
+        self.assertEqual(res["decision"], "allow")
+
+    def test_primary_agent_reading_code_file_allowed(self):
+        res = eo.handle_pre_tool_use(self.tool("view_file", {"AbsolutePath": str(self.ws / "main.py")}))
+        self.assertEqual(res["decision"], "allow")
+
+    def test_direct_edits_capped_at_max_direct_edits(self):
+        # Default max is 3 distinct files
+        res1 = eo.handle_pre_tool_use(self.tool("write_to_file", {"TargetFile": str(self.ws / "a.py")}))
+        self.assertEqual(res1["decision"], "allow")
+        res2 = eo.handle_pre_tool_use(self.tool("replace_file_content", {"TargetFile": str(self.ws / "b.py")}))
+        self.assertEqual(res2["decision"], "allow")
+        res3 = eo.handle_pre_tool_use(self.tool("write_to_file", {"TargetFile": str(self.ws / "c.py")}))
+        self.assertEqual(res3["decision"], "allow")
+        # Repeating an already edited file is allowed
+        res3_repeat = eo.handle_pre_tool_use(self.tool("write_to_file", {"TargetFile": str(self.ws / "c.py")}))
+        self.assertEqual(res3_repeat["decision"], "allow")
+        # 4th distinct file is denied
+        res4 = eo.handle_pre_tool_use(self.tool("write_to_file", {"TargetFile": str(self.ws / "d.py")}))
+        self.assertEqual(res4["decision"], "deny")
+        self.assertIn("Direct workspace edit limit", res4["reason"])
+
+    def test_direct_edits_custom_max(self):
+        os.environ["AGY_ARGON_MAX_DIRECT_EDITS"] = "1"
+        res1 = eo.handle_pre_tool_use(self.tool("write_to_file", {"TargetFile": str(self.ws / "a.py")}))
+        self.assertEqual(res1["decision"], "allow")
+        res2 = eo.handle_pre_tool_use(self.tool("write_to_file", {"TargetFile": str(self.ws / "b.py")}))
+        self.assertEqual(res2["decision"], "deny")
+
+    def test_direct_edits_bypass_with_flag(self):
+        os.environ["AGY_ARGON_ALLOW_DIRECT_FASTPATH"] = "1"
+        for i in range(5):
+            res = eo.handle_pre_tool_use(self.tool("write_to_file", {"TargetFile": str(self.ws / f"f{i}.py")}))
+            self.assertEqual(res["decision"], "allow")
+
+    def test_artifact_edits_do_not_count_towards_edit_limit(self):
+        art_file = str(self.artifacts / "scratch/test.py")
+        res = eo.handle_pre_tool_use(self.tool("write_to_file", {"TargetFile": art_file}))
+        self.assertEqual(res["decision"], "allow")
+        state = eo.load_state(self.payload)
+        self.assertEqual(state.get("turn_edited_files", []), [])
+
+    def test_workspace_edit_followed_by_test_runner_denied(self):
+        eo.handle_pre_tool_use(self.tool("write_to_file", {"TargetFile": str(self.ws / "calc.py")}))
+        for test_cmd in ("pytest", "python -m unittest discover", "npm test", "cargo test", "go test", "vitest run"):
+            with self.subTest(cmd=test_cmd):
+                res = eo.handle_pre_tool_use(self.tool("run_command", {"CommandLine": test_cmd, "Cwd": str(self.ws)}))
+                self.assertEqual(res["decision"], "deny")
+                self.assertIn("Direct workspace edit followed by test runner execution", res["reason"])
+        # Non-test runner commands remain allowed
+        res_ls = eo.handle_pre_tool_use(self.tool("run_command", {"CommandLine": "ls", "Cwd": str(self.ws)}))
+        self.assertEqual(res_ls["decision"], "allow")
+
+    def test_edit_then_test_runner_allowed_with_flag(self):
+        os.environ["AGY_ARGON_ALLOW_DIRECT_FASTPATH"] = "1"
+        eo.handle_pre_tool_use(self.tool("write_to_file", {"TargetFile": str(self.ws / "calc.py")}))
+        res = eo.handle_pre_tool_use(self.tool("run_command", {"CommandLine": "pytest", "Cwd": str(self.ws)}))
+        self.assertEqual(res["decision"], "allow")
+
+    def test_pre_invocation_resets_turn_tracking(self):
+        eo.handle_pre_tool_use(self.tool("write_to_file", {"TargetFile": str(self.ws / "a.py")}))
+        state = eo.load_state(self.payload)
+        self.assertTrue(len(state.get("turn_edited_files", [])) > 0)
+        eo.handle_pre_invocation(self.payload)
+        state_after = eo.load_state(self.payload)
+        self.assertEqual(state_after.get("turn_edited_files", []), [])
+        self.assertEqual(state_after.get("consecutive_failures", 0), 0)
+
+
+class TestCircuitBreaker(HookBase):
+    def setUp(self):
+        super().setUp()
+        self.ws = Path(self.tmp.name) / "project"
+        self.ws.mkdir(parents=True, exist_ok=True)
+        self.payload["workspacePaths"] = [str(self.ws)]
+        os.environ["AGY_ARGON_AUTO_ALLOW"] = "1"
+
+    def test_single_failure_increments_streak_and_allows_next(self):
+        post_payload = dict(self.payload, toolCall={"name": "run_command", "args": {"CommandLine": "fail"}}, error="command failed")
+        eo.handle_post_tool_use(post_payload)
+        state = eo.load_state(self.payload)
+        self.assertEqual(state.get("consecutive_failures"), 1)
+        res = eo.handle_pre_tool_use(self.tool("run_command", {"CommandLine": "echo 1", "Cwd": str(self.ws)}))
+        self.assertEqual(res["decision"], "allow")
+
+    def test_second_failure_trips_circuit_breaker(self):
+        post_payload1 = dict(self.payload, toolCall={"name": "run_command", "args": {"CommandLine": "fail1"}}, error="err1")
+        eo.handle_post_tool_use(post_payload1)
+        post_payload2 = dict(self.payload, toolCall={"name": "run_command", "args": {"CommandLine": "fail2"}}, toolResult={"exitCode": 1, "output": "error"})
+        eo.handle_post_tool_use(post_payload2)
+        state = eo.load_state(self.payload)
+        self.assertEqual(state.get("consecutive_failures"), 2)
+
+        # PreToolUse now denies commands and subagents
+        res_cmd = eo.handle_pre_tool_use(self.tool("run_command", {"CommandLine": "echo retry", "Cwd": str(self.ws)}))
+        self.assertEqual(res_cmd["decision"], "deny")
+        self.assertIn("Circuit breaker tripped", res_cmd["reason"])
+
+        res_sub = eo.handle_pre_tool_use(self.tool("invoke_subagent", {"Subagents": [sub("do task")]}))
+        self.assertEqual(res_sub["decision"], "deny")
+        self.assertIn("Circuit breaker tripped", res_sub["reason"])
+
+    def test_success_resets_failure_streak(self):
+        post_payload1 = dict(self.payload, toolCall={"name": "run_command", "args": {"CommandLine": "fail"}}, error="err")
+        eo.handle_post_tool_use(post_payload1)
+        self.assertEqual(eo.load_state(self.payload).get("consecutive_failures"), 1)
+
+        post_payload2 = dict(self.payload, toolCall={"name": "run_command", "args": {"CommandLine": "ok"}}, toolResult={"exitCode": 0, "output": "success"})
+        eo.handle_post_tool_use(post_payload2)
+        self.assertEqual(eo.load_state(self.payload).get("consecutive_failures"), 0)
+
+    def test_subagent_failed_status_counts_as_failure(self):
+        post_payload = dict(
+            self.payload,
+            toolCall={"name": "invoke_subagent", "args": {"Subagents": [sub("test")]}},
+            toolResult={"content": "STATUS: FAILED\nFILES_CHANGED: NONE\nVERIFICATION: failed\nNOTES: err file:///a.log"},
+        )
+        eo.handle_post_tool_use(post_payload)
+        self.assertEqual(eo.load_state(self.payload).get("consecutive_failures"), 1)
+
+    def test_circuit_breaker_disabled_via_env(self):
+        os.environ["AGY_ARGON_CIRCUIT_BREAKER"] = "0"
+        state = eo.load_state(self.payload)
+        state["consecutive_failures"] = 2
+        eo.save_state(self.payload, state)
+
+        res = eo.handle_pre_tool_use(self.tool("run_command", {"CommandLine": "ls", "Cwd": str(self.ws)}))
+        self.assertEqual(res["decision"], "allow")
+
+
+class TestSubagentReportValidation(unittest.TestCase):
+    def test_valid_four_line_report(self):
+        text = (
+            "STATUS: COMPLETED\n"
+            "FILES_CHANGED: NONE\n"
+            "VERIFICATION: git status verified clean\n"
+            "NOTES: All files are up to date."
+        )
+        self.assertIsNone(eo.validate_subagent_report(text))
+
+    def test_valid_report_with_bullets(self):
+        text = (
+            "STATUS: COMPLETED\n"
+            "FILES_CHANGED: src/a.py, src/b.py\n"
+            "VERIFICATION: pytest tests/ passed\n"
+            "NOTES: Findings:\n"
+            "- Updated a.py\n"
+            "- Added tests in b.py\n"
+            "* Verified edge cases"
+        )
+        self.assertIsNone(eo.validate_subagent_report(text))
+
+    def test_exceeding_max_bullets_denied(self):
+        bullets = "\n".join(f"- Bullet {i}" for i in range(11))
+        text = f"STATUS: COMPLETED\nFILES_CHANGED: NONE\nVERIFICATION: ok\nNOTES: summary\n{bullets}"
+        err = eo.validate_subagent_report(text)
+        self.assertIsNotNone(err)
+        self.assertIn("Expected at most 4 headers plus 10 bullet lines", err)
+
+    def test_exceeding_max_chars_denied(self):
+        text = "STATUS: COMPLETED\nFILES_CHANGED: NONE\nVERIFICATION: ok\nNOTES: " + ("x" * 1600)
+        err = eo.validate_subagent_report(text)
+        self.assertIsNotNone(err)
+        self.assertIn("exceeds maximum 1600 chars", err)
+
+    def test_blocked_without_log_uri_denied(self):
+        text = (
+            "STATUS: BLOCKED\n"
+            "FILES_CHANGED: NONE\n"
+            "VERIFICATION: command failed with exit code 1\n"
+            "NOTES: Missing required environment variable."
+        )
+        err = eo.validate_subagent_report(text)
+        self.assertIsNotNone(err)
+        self.assertIn("must include a 'file://.../*.log' scratch log URI", err)
+
+    def test_blocked_with_log_uri_allowed(self):
+        text = (
+            "STATUS: BLOCKED\n"
+            "FILES_CHANGED: NONE\n"
+            "VERIFICATION: pytest failed\n"
+            "NOTES: Missing dependencies, see raw output: file:///path/to/scratch/task_1.log"
+        )
+        self.assertIsNone(eo.validate_subagent_report(text))
+
+    def test_failed_with_log_uri_allowed(self):
+        text = (
+            "STATUS: FAILED\n"
+            "FILES_CHANGED: src/a.py\n"
+            "VERIFICATION: tests failed\n"
+            "NOTES: Syntax error in test file:\n"
+            "- Error trace: file:///path/scratch/err.log"
+        )
+        self.assertIsNone(eo.validate_subagent_report(text))
+
+    def test_missing_header_denied(self):
+        text = "STATUS: COMPLETED\nVERIFICATION: ok\nNOTES: done"
+        err = eo.validate_subagent_report(text)
+        self.assertIsNotNone(err)
+        self.assertIn("Expected at least 4 header lines", err)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.0 — 2026-10-19
+
+### Fixed
+- **`PreToolUse` hook no longer returns empty `{}` (which Antigravity treated as an unapproved tool denial).** When `AGY_ARGON_AUTO_ALLOW` is unset, when a tool has no path arguments (`read_url_content`, `search_web`, browser/MCP tools), or on fallback/error, it now returns an explicit pass-through `{"decision": "allow", "reason": "Argon Orchestrator: pass-through."}`.
+
+### Added
+- **Context Hygiene Guard**: Blocks direct inspection of `.log` or `transcript.jsonl` / `transcript_full.jsonl` files by the primary agent in `PreToolUse` (unless `AGY_ARGON_ALLOW_DIRECT_LOGS=1`), delegating log slicing to `flash-lite-scout`.
+- **Fast-Path Direct Execution Budget**: Tracks direct workspace file mutations in `turn_edited_files`, capping the primary agent at `AGY_ARGON_MAX_DIRECT_EDITS` (default 3 distinct workspace files in one turn) and blocking direct workspace edit followed by test runner execution in the same turn (unless `AGY_ARGON_ALLOW_DIRECT_FASTPATH=1`), delegating code editing and test execution loops to `flash-worker`.
+- **Two-Failure Circuit Breaker**: Tracks consecutive failures across `run_command` and `invoke_subagent` in `PostToolUse` (matcher updated to `invoke_subagent|manage_subagents|run_command`). Trips after 2 consecutive failures and denies further commands or subagent invocations in `PreToolUse` (unless `AGY_ARGON_CIRCUIT_BREAKER=0`).
+- **Per-Turn Tracking Reset**: `PreInvocation` automatically resets `turn_edited_files` and `consecutive_failures` on each turn.
+- **Bounded 4-Header Subagent Report Contract**: Expanded the subagent report format across rules and agents to support up to 10 compact bullet lines (`- ` or `* `) under `NOTES:` (total length $\le 1,600$ characters) and mandatory `file://` scratch log URI on `BLOCKED` or `FAILED`. Added `validate_subagent_report(text)` validation helper in `enforce-orchestrator.py`.
+
 ## 1.2.0 — 2026-10-16
 
 ### Fixed

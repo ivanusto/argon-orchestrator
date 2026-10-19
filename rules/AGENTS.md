@@ -64,14 +64,17 @@ RULES:
 5. On failure, write raw output to `<artifactDirectoryPath>/scratch/<task_id>.log`.
 
 REPORT FORMAT:
-Return only these four lines:
+Return only these four headers (plus up to 10 `- ` bullet lines under NOTES if needed):
 STATUS: COMPLETED | BLOCKED | FAILED
 FILES_CHANGED: <comma-separated paths or NONE>
 VERIFICATION: <one sentence stating the command run and exit result>
-NOTES: <one sentence stating findings, or file:// log URI if BLOCKED/FAILED>
+NOTES: <summary (and up to 10 `- ` bullets), or file:// log URI if BLOCKED/FAILED>
 ```
 
-Scouts omit rules 3 to 5 and always report `FILES_CHANGED: NONE`. The four-line report is what keeps subagent output cheap to read back; do not ask subagents for prose summaries.
+Scouts omit rules 3 to 5 and always report `FILES_CHANGED: NONE`. Subagent reports must follow the bounded report format:
+- Up to 10 compact bullet lines (`- ` or `* `) under `NOTES:` (total report length capped at $\le 1,600$ chars).
+- When `STATUS` is `BLOCKED` or `FAILED`, `NOTES:` must include a `file://.../*.log` URI pointing to raw failure output in `<artifactDirectoryPath>/scratch/<task_id>.log`.
+The four-header bounded report keeps subagent output cheap to read back; do not ask subagents for unstructured prose summaries.
 
 ---
 

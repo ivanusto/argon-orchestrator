@@ -20,7 +20,7 @@ When context must be gathered across the workspace before planning:
 1. Identify independent lookups (file discovery, symbol search, config inspection, git/log status).
 2. Fan out concurrent **`flash_lite`** subagents in a single `invoke_subagent` call:
    - Prefer `TypeName: "flash-lite-scout"` (or `TypeName: "research"`) with `"Model": "flash_lite"`.
-   - Keep each prompt narrowly scoped and end it with the four-line REPORT FORMAT from `rules/AGENTS.md`.
+   - Keep each prompt narrowly scoped and end it with the four-header bounded REPORT FORMAT from `rules/AGENTS.md`.
    - Scouts are read-only and have no web tools; anything that needs `search_web` or an edit goes to Phase 3.
 3. End your turn after the `invoke_subagent` call. Antigravity wakes you when the scouts report.
 
@@ -43,7 +43,7 @@ Perform high-reasoning work directly on the primary Argon agent:
 1. Dispatch independent implementation or test work units via `invoke_subagent`:
    - Use `TypeName: "flash-worker"` (or `TypeName: "self"` / `"research"`) with `"Model": "flash"`.
    - Use `Workspace: "share"` or `"branch"` when parallel `flash` workers modify separate branches/worktrees, or `"inherit"` when they operate on disjoint files.
-   - Give every worker an explicit file allowlist, a verification command and the four-line REPORT FORMAT.
+   - Give every worker an explicit file allowlist, a verification command and the four-header bounded REPORT FORMAT.
    - Follow-up instructions to an existing worker go through `send_message`; never send edit tasks to a scout.
 2. For large programmatic fan-out (e.g., processing a list of modules or test files in a pipeline), you may also use `run_workflow` with `agent(..., model="flash_lite")` for discovery and `agent(..., model="flash")` for per-module execution/review.
 

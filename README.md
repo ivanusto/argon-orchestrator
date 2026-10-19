@@ -18,25 +18,26 @@ An Antigravity (`agy`) plugin that pins **Gemini 4 Argon (`High` or `Medium`)** 
 
 ## Bundled Components
 
-- **[`rules/AGENTS.md`](./rules/AGENTS.md)**: Always-on orchestration policy: the routing matrix, invocation rules, the four-line subagent report contract, and the branch-cleanup rule.
+- **[`rules/AGENTS.md`](./rules/AGENTS.md)**: Always-on orchestration policy: the routing matrix, invocation rules, the bounded 4-header subagent report contract, and the branch-cleanup rule.
 - **[`hooks.json`](./hooks.json) & [`scripts/enforce-orchestrator.py`](./scripts/enforce-orchestrator.py)** (Python 3.8+, standard library only):
 
   | Hook | What it does |
   | :--- | :--- |
   | `SessionStart` | Reads `~/.gemini/antigravity-cli/settings.json`, **warns** if the primary model is not Argon, and injects the policy notice. Rewrites the file only when `AGY_ARGON_PIN_SETTINGS=1`. |
-  | `PreInvocation` | Checks the live session model every turn; warns once per invocation if it is not Argon/Pro-tier (catches UI model switches). |
-  | `PreToolUse` `invoke_subagent` | Classifies every subagent into `flash` / `flash_lite` from `TypeName`, `Workspace`, `Role` and `Prompt`. Strong signals (tests, debugging, tracing, mutation verbs) always beat lookup keywords. A `flash-lite-scout` given an edit task is upgraded to `flash-worker`. |
+  | `PreInvocation` | Checks the live session model every turn; warns once per invocation if it is not Argon/Pro-tier (catches UI model switches). Resets per-turn tracking (`turn_edited_files`, `consecutive_failures`). |
+  | `PreToolUse` `invoke_subagent` | Classifies every subagent into `flash` / `flash_lite` from `TypeName`, `Workspace`, `Role` and `Prompt`. Strong signals (tests, debugging, tracing, mutation verbs) always beat lookup keywords. A `flash-lite-scout` given an edit task is upgraded to `flash-worker`. Denied when the circuit breaker is tripped. |
   | `PreToolUse` `send_message` | Denies code-change or multi-step (>3 numbered rules) follow-ups sent to a `flash_lite` recipient. |
   | `PreToolUse` `run_workflow` | Denies scripts whose `agent(...)` calls lack `model="flash"` / `model="flash_lite"`. |
   | `PreToolUse` `define_subagent` | Forces `enable_subagent_tools=false`. |
-  | `PreToolUse` other tools (opt-in, `AGY_ARGON_AUTO_ALLOW=1`) | Workspace scope guard: `run_command` and file tools whose cwd, paths and command text stay inside `workspacePaths` / `artifactDirectoryPath` are answered `allow`; paths outside, privilege escalation, recursive deletes of a root, system-altering commands, force pushes and downloads piped to a shell are answered `ask`; tools without path arguments (browser, MCP, web) get no opinion. |
-  | `PostToolUse` | Pairs spawned subagents with the metadata agy writes under `<artifactDirectoryPath>/.system_generated/subagents/` (type, role, live state, worktree); rolls back on failed spawns. |
+  | `PreToolUse` context hygiene & fast-path | Blocks direct primary-agent reads of `.log` or `transcript.jsonl` files (delegates to `flash-lite-scout`). Limits direct workspace file edits to 3 files per turn and blocks direct edit + test-runner loops in the primary agent (delegating to `flash-worker`). |
+  | `PreToolUse` other tools & workspace guard | When `AGY_ARGON_AUTO_ALLOW=1`, in-workspace file/command tools are answered `allow`; paths outside, privilege escalation, recursive deletes of a root, system-altering commands, force pushes and downloads piped to a shell are answered `ask`. When unset or for tools without path arguments, returns explicit `allow` pass-through so tools are never denied by hook output. |
+  | `PostToolUse` | Pairs spawned subagents with metadata; tracks command and subagent failure streaks for the circuit breaker. |
   | `Stop` | If `Workspace:"branch"` workers are still alive when the turn is fully idle, asks once per set of live workers to merge/discard and kill them. Never blocks cancellations, errors or budget caps. |
 
 - **[`agents/`](./agents/)**:
   - **[`flash-lite-scout`](./agents/flash-lite-scout/agent.md)**: read-only scout pinned to `model: flash_lite`; local lookup tools only, no web, no writes.
   - **[`flash-worker`](./agents/flash-worker/agent.md)**: research & execution worker pinned to `model: flash`; edits only within the prompt's file allowlist and stops after two failed attempts.
-  - Both return a fixed four-line report (`STATUS / FILES_CHANGED / VERIFICATION / NOTES`) so the orchestrator reads back minimal tokens.
+  - Both return a bounded four-header report (`STATUS / FILES_CHANGED / VERIFICATION / NOTES`, supporting up to 10 bullet lines under `NOTES`, $\le 1,600$ chars, and requiring a `file://` log URI when `BLOCKED` or `FAILED`) so the orchestrator reads back minimal tokens.
 - **[`skills/orchestrate/SKILL.md`](./skills/orchestrate/SKILL.md)**: the `/orchestrate` four-phase workflow (`flash_lite` recon → Argon plan → `flash` execution → Argon verification and branch cleanup).
 
 ### Environment variables
@@ -47,6 +48,10 @@ An Antigravity (`agy`) plugin that pins **Gemini 4 Argon (`High` or `Medium`)** 
 | `AGY_ARGON_PRIMARY_MODEL` | Target model when pinning: `Gemini 4 Argon (High)` (default) or `Gemini 4 Argon (Medium)`. |
 | `AGY_ALLOW_NON_ARGON_PRIMARY=1` | Silence all primary-model warnings. |
 | `AGY_ARGON_AUTO_ALLOW=1` | Enable the workspace scope guard (off by default). |
+| `AGY_ARGON_MAX_DIRECT_EDITS=<int>` | Max distinct workspace file edits per turn by the primary agent (default: 3). |
+| `AGY_ARGON_ALLOW_DIRECT_LOGS=1` | Allow the primary agent to read raw `.log` and `transcript.jsonl` files directly. |
+| `AGY_ARGON_ALLOW_DIRECT_FASTPATH=1` | Allow the primary agent to bypass direct edit limits and edit-then-test runner loops. |
+| `AGY_ARGON_CIRCUIT_BREAKER=0` | Disable the 2-failure circuit breaker. |
 | `AGY_ARGON_DEBUG=1` | Append one JSON line per hook call to `<artifactDirectoryPath>/argon_orchestrator_debug.log` (mode, tool, payload keys, decision). |
 
 ---
