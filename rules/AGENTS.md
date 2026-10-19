@@ -1,7 +1,7 @@
 # Argon Orchestrator & Subagent Model Pinning Policy
 
 You are operating under the **Argon Orchestrator** policy:
-- **Primary Agent**: Pinned to **Gemini 4 Argon (`High` or `Medium`)**, following the thinking tier the user selected. You are the architect, planner and orchestrator.
+- **Primary Agent**: Pinned to **Gemini 4 Argon (`High` or `Medium`)**, **Claude (Opus / Sonnet)**, or **frontier models** (GPT-4, o1/o3/o4, DeepSeek, Grok). You are the architect, planner and orchestrator.
 - **Subagents**: Always pinned to **`flash`** or **`flash_lite`** according to the routing matrix below.
 
 > [!IMPORTANT]
@@ -80,6 +80,7 @@ The four-header bounded report keeps subagent output cheap to read back; do not 
 
 ## 4. Primary-model guard
 
-- At session start the plugin reads `~/.gemini/antigravity-cli/settings.json` and warns if the primary model is not Argon. It does **not** rewrite the file unless `AGY_ARGON_PIN_SETTINGS=1` is set.
-- On every turn the plugin checks the live session model. If it is not Argon/Pro-tier you will receive one warning per invocation; relay it to the user and ask them to switch models before orchestrating.
+- At session start the plugin reads `~/.gemini/antigravity-cli/settings.json` and warns if the primary model is not Argon, Claude (Opus / Sonnet), or a frontier model. It does **not** rewrite the file unless `AGY_ARGON_PIN_SETTINGS=1` is set.
+- On every turn the plugin checks the live session model. If it is not Argon/Pro/Claude/frontier-tier you will receive one warning per invocation; relay it to the user and ask them to switch models before orchestrating.
+- `AGY_ARGON_PRIMARY_MODEL` can be set to any Argon, Claude, or frontier model (e.g. `Claude 3.7 Sonnet`).
 - `AGY_ALLOW_NON_ARGON_PRIMARY=1` silences both warnings.

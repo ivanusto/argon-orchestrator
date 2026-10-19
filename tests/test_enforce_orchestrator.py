@@ -277,8 +277,39 @@ class TestPrimaryModelGuard(HookBase):
     def test_is_argon_tier(self):
         self.assertTrue(eo.is_argon_tier("Gemini 4 Argon (High)"))
         self.assertTrue(eo.is_argon_tier("gemini-3.1-pro-preview"))
-        for bad in ("gemini-3-flash", "gemini-flash-lite", "auto", "", "inherit"):
+        self.assertTrue(eo.is_argon_tier("gemini-ultra"))
+        self.assertTrue(eo.is_argon_tier("claude-3-7-sonnet-20250219"))
+        self.assertTrue(eo.is_argon_tier("Claude 3.5 Sonnet"))
+        self.assertTrue(eo.is_argon_tier("Claude 3 Opus"))
+        self.assertTrue(eo.is_argon_tier("gpt-4o"))
+        self.assertTrue(eo.is_argon_tier("gpt-5-preview"))
+        self.assertTrue(eo.is_argon_tier("o1"))
+        self.assertTrue(eo.is_argon_tier("o1-preview"))
+        self.assertTrue(eo.is_argon_tier("o3"))
+        self.assertTrue(eo.is_argon_tier("o4"))
+        self.assertTrue(eo.is_argon_tier("deepseek-reasoner"))
+        self.assertTrue(eo.is_argon_tier("grok-3"))
+
+        for bad in (
+            "gemini-3-flash",
+            "gemini-flash-lite",
+            "auto",
+            "",
+            "inherit",
+            "none",
+            "claude-3-5-haiku-20241022",
+            "Claude 3.5 Haiku",
+            "gpt-4o-mini",
+            "o3-mini",
+            "o4-mini",
+            "nano-model",
+        ):
             self.assertFalse(eo.is_argon_tier(bad), bad)
+
+    def test_is_frontier_tier_alias(self):
+        self.assertIs(eo.is_frontier_tier, eo.is_argon_tier)
+        self.assertTrue(eo.is_frontier_tier("Claude 3.7 Sonnet"))
+        self.assertFalse(eo.is_frontier_tier("Claude 3.5 Haiku"))
 
     def test_pre_invocation_warns_once_for_non_argon(self):
         self.assertEqual(eo.handle_pre_invocation(self.payload), {})
@@ -287,6 +318,14 @@ class TestPrimaryModelGuard(HookBase):
         self.assertEqual(eo.handle_pre_invocation(p), {})
         os.environ["AGY_ALLOW_NON_ARGON_PRIMARY"] = "1"
         self.assertEqual(eo.handle_pre_invocation(dict(p, invocationNum=3)), {})
+
+    def test_pre_invocation_allows_frontier_models(self):
+        for model in ("Claude 3.7 Sonnet", "Claude 3 Opus", "gpt-4o", "o3", "deepseek-reasoner"):
+            p = dict(self.payload, modelName=model, invocationNum=10)
+            self.assertEqual(eo.handle_pre_invocation(p), {}, f"Should allow {model}")
+
+        haiku_payload = dict(self.payload, modelName="Claude 3.5 Haiku", invocationNum=11)
+        self.assertIn("injectSteps", eo.handle_pre_invocation(haiku_payload))
 
     def _settings(self, model):
         path = Path(self.tmp.name) / "settings.json"
@@ -311,11 +350,26 @@ class TestPrimaryModelGuard(HookBase):
         self.assertEqual(data["model"], "Gemini 4 Argon (Medium)")
         self.assertEqual(data["other"], 1)
 
+    def test_session_start_pins_frontier_model_when_opted_in(self):
+        path = self._settings("gemini-3-flash")
+        os.environ["AGY_ARGON_PIN_SETTINGS"] = "1"
+        os.environ["AGY_ARGON_PRIMARY_MODEL"] = "Claude 3.7 Sonnet"
+        res = eo.handle_session_start({})
+        self.assertIn("Restored primary model pin to 'Claude 3.7 Sonnet'", res["injectSteps"][0]["systemMessage"]["systemMessage"])
+        data = json.loads(path.read_text())
+        self.assertEqual(data["model"], "Claude 3.7 Sonnet")
+
     def test_session_start_keeps_user_tier(self):
         self._settings("Gemini 4 Argon (Medium)")
         os.environ["AGY_ARGON_PIN_SETTINGS"] = "1"
         msg = eo.handle_session_start({})["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("Primary model is 'Gemini 4 Argon (Medium)'", msg)
+
+    def test_session_start_keeps_frontier_model(self):
+        self._settings("Claude 3.7 Sonnet")
+        os.environ["AGY_ARGON_PIN_SETTINGS"] = "1"
+        msg = eo.handle_session_start({})["injectSteps"][0]["systemMessage"]["systemMessage"]
+        self.assertIn("Primary model is 'Claude 3.7 Sonnet'", msg)
 
 
 class TestWorkspaceGuard(HookBase):

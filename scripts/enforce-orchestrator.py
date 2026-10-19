@@ -257,14 +257,35 @@ def validate_subagent_report(text: str) -> Optional[str]:
     return None
 
 
+SMALL_TIER_RE = re.compile(r"\b(flash|lite|mini|nano|haiku)\b", re.IGNORECASE)
+FRONTIER_TOKENS = (
+    "argon",
+    "pro",
+    "ultra",
+    "claude",
+    "opus",
+    "sonnet",
+    "gpt-4",
+    "gpt-5",
+    "o1",
+    "o3",
+    "o4",
+    "deepseek",
+    "grok",
+)
+
+
 def is_argon_tier(model_name: str) -> bool:
-    """True for Argon / Pro / Ultra models; False for Flash, Lite, Auto or empty."""
+    """True for Argon / Pro / Ultra / Claude / frontier models; False for Flash, Lite, Mini, Nano, Haiku, Auto or empty."""
     normalized = (model_name or "").strip().lower()
     if not normalized or normalized in {"auto", "none", "inherit"}:
         return False
-    if "flash" in normalized or "lite" in normalized:
+    if SMALL_TIER_RE.search(normalized):
         return False
-    return any(token in normalized for token in ("argon", "pro", "ultra"))
+    return any(token in normalized for token in FRONTIER_TOKENS)
+
+
+is_frontier_tier = is_argon_tier
 
 
 def _env_flag(name: str) -> bool:
@@ -491,11 +512,11 @@ def _write_settings_atomic(path: str, data: Dict[str, Any]) -> None:
 
 def check_primary_model_settings() -> Tuple[str, str]:
     """Return (status, model) where status is one of:
-    'ok' (Argon), 'warn' (non-Argon, not changed), 'pinned' (rewritten, opt-in),
+    'ok' (Argon/frontier), 'warn' (non-Argon, not changed), 'pinned' (rewritten, opt-in),
     'unknown' (settings file missing/unreadable), 'silenced'.
     """
     preferred = os.environ.get("AGY_ARGON_PRIMARY_MODEL", "").strip()
-    target = preferred if preferred in ALLOWED_PRIMARY_MODELS else DEFAULT_PRIMARY_MODEL
+    target = preferred if (preferred in ALLOWED_PRIMARY_MODELS or is_argon_tier(preferred)) else DEFAULT_PRIMARY_MODEL
     data, path = _read_settings()
     if data is None:
         return "unknown", target

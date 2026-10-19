@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0 — 2026-10-19
+
+### Added
+- **Frontier Model Support for Primary Orchestrator**: Expanded `is_argon_tier` (aliased as `is_frontier_tier`) to support Claude (Opus / Sonnet), Gemini Pro / Ultra, OpenAI frontier/reasoning models (GPT-4, GPT-5, o1, o3, o4), DeepSeek, and Grok alongside Gemini 4 Argon (`High` / `Medium`).
+- **Small-Tier Rejection Guard**: Word-boundary regex filtering (`\b(flash|lite|mini|nano|haiku)\b`) rejects small-tier models (such as Claude Haiku, GPT-4o mini, o3-mini) from being accidentally treated as primary orchestrators while correctly distinguishing `gemini`.
+- **Flexible Primary Model Pinning**: `check_primary_model_settings()` now honors any valid Argon or frontier model specified via `AGY_ARGON_PRIMARY_MODEL` (e.g., `Claude 3.7 Sonnet`) when `AGY_ARGON_PIN_SETTINGS=1` is opted in.
+
 ## 1.3.0 — 2026-10-19
 
 ### Fixed

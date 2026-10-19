@@ -2,7 +2,7 @@
 
 [繁體中文說明 (README.zh-TW.md)](./README.zh-TW.md)
 
-An Antigravity (`agy`) plugin that pins **Gemini 4 Argon (`High` or `Medium`)** as the primary orchestrator agent (automatically preserving whichever thinking tier you select in the UI/CLI) and enforces context-aware model pinning (`flash` or `flash_lite`) for all subagents.
+An Antigravity (`agy`) plugin that pins **Gemini 4 Argon (`High` or `Medium`)**, **Claude (Opus / Sonnet)**, or **frontier models** (GPT-4, o1/o3/o4, DeepSeek, Grok) as the primary orchestrator agent (automatically preserving whichever thinking tier you select in the UI/CLI) and enforces context-aware model pinning (`flash` or `flash_lite`) for all subagents.
 
 ---
 
@@ -10,7 +10,7 @@ An Antigravity (`agy`) plugin that pins **Gemini 4 Argon (`High` or `Medium`)** 
 
 | Tier | Model | Role & Responsibilities |
 | :--- | :--- | :--- |
-| **Primary Orchestrator** | `Gemini 4 Argon (High / Medium)` | High-level architecture, multi-step planning, cross-cutting refactors, complex reasoning, security review, and final synthesis. Automatically follows your selected `High` or `Medium` thinking tier. |
+| **Primary Orchestrator** | `Gemini 4 Argon (High / Medium)`, `Claude (Opus / Sonnet)`, or frontier models | High-level architecture, multi-step planning, cross-cutting refactors, complex reasoning, security review, and final synthesis. Automatically follows your selected thinking tier. |
 | **Tier 1 Subagent (`flash-worker`)** | `flash` | Multi-file codebase research, web/documentation synthesis, writing & running tests, and scoped code edits or debugging. |
 | **Tier 2 Subagent (`flash-lite-scout`)** | `flash_lite` | Fast file/symbol lookups, grep/glob searches, git/log status checks, single-file inspection, and lightweight summarization. |
 
@@ -23,8 +23,8 @@ An Antigravity (`agy`) plugin that pins **Gemini 4 Argon (`High` or `Medium`)** 
 
   | Hook | What it does |
   | :--- | :--- |
-  | `SessionStart` | Reads `~/.gemini/antigravity-cli/settings.json`, **warns** if the primary model is not Argon, and injects the policy notice. Rewrites the file only when `AGY_ARGON_PIN_SETTINGS=1`. |
-  | `PreInvocation` | Checks the live session model every turn; warns once per invocation if it is not Argon/Pro-tier (catches UI model switches). Resets per-turn tracking (`turn_edited_files`, `consecutive_failures`). |
+  | `SessionStart` | Reads `~/.gemini/antigravity-cli/settings.json`, **warns** if the primary model is not Argon or a frontier model, and injects the policy notice. Rewrites the file only when `AGY_ARGON_PIN_SETTINGS=1`. |
+  | `PreInvocation` | Checks the live session model every turn; warns once per invocation if it is not Argon/Claude/frontier-tier (catches UI model switches). Resets per-turn tracking (`turn_edited_files`, `consecutive_failures`). |
   | `PreToolUse` `invoke_subagent` | Classifies every subagent into `flash` / `flash_lite` from `TypeName`, `Workspace`, `Role` and `Prompt`. Strong signals (tests, debugging, tracing, mutation verbs) always beat lookup keywords. A `flash-lite-scout` given an edit task is upgraded to `flash-worker`. Denied when the circuit breaker is tripped. |
   | `PreToolUse` `send_message` | Denies code-change or multi-step (>3 numbered rules) follow-ups sent to a `flash_lite` recipient. |
   | `PreToolUse` `run_workflow` | Denies scripts whose `agent(...)` calls lack `model="flash"` / `model="flash_lite"`. |
@@ -44,8 +44,8 @@ An Antigravity (`agy`) plugin that pins **Gemini 4 Argon (`High` or `Medium`)** 
 
 | Variable | Effect |
 | :--- | :--- |
-| `AGY_ARGON_PIN_SETTINGS=1` | Opt in to rewriting `settings.json` back to an Argon model at session start (1.1.x behaviour). |
-| `AGY_ARGON_PRIMARY_MODEL` | Target model when pinning: `Gemini 4 Argon (High)` (default) or `Gemini 4 Argon (Medium)`. |
+| `AGY_ARGON_PIN_SETTINGS=1` | Opt in to rewriting `settings.json` back to an Argon or frontier model at session start. |
+| `AGY_ARGON_PRIMARY_MODEL` | Target model when pinning: `Gemini 4 Argon (High)` (default), `Gemini 4 Argon (Medium)`, `Claude 3.7 Sonnet`, or any supported frontier model. |
 | `AGY_ALLOW_NON_ARGON_PRIMARY=1` | Silence all primary-model warnings. |
 | `AGY_ARGON_AUTO_ALLOW=1` | Enable the workspace scope guard (off by default). |
 | `AGY_ARGON_MAX_DIRECT_EDITS=<int>` | Max distinct workspace file edits per turn by the primary agent (default: 3). |

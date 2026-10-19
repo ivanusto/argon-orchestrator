@@ -2,7 +2,7 @@
 
 [English Documentation (README.md)](./README.md)
 
-專為 Google Antigravity (`agy`) 設計的 Orchestrator 插件：將主代理（Primary Agent）綁定為 **Gemini 4 Argon (`High` 或 `Medium`)**（自動保留您在 UI/CLI 切換的思考等級），並根據任務情境（Context）自動將所有子代理（Subagents）固定為 **`flash`** 或 **`flash_lite`** 模型。
+專為 Google Antigravity (`agy`) 設計的 Orchestrator 插件：將主代理（Primary Agent）綁定為 **Gemini 4 Argon (`High` 或 `Medium`)**、**Claude (`Opus` / `Sonnet`)** 或 **Frontier 前沿模型**（GPT-4、o1/o3/o4、DeepSeek、Grok，自動保留您在 UI/CLI 切換的思考等級），並根據任務情境（Context）自動將所有子代理（Subagents）固定為 **`flash`** 或 **`flash_lite`** 模型。
 
 ---
 
@@ -10,7 +10,7 @@
 
 | 層級 | 綁定模型 | 角色與負責範圍 |
 | :--- | :--- | :--- |
-| **主代理 (Primary Orchestrator)** | `Gemini 4 Argon (High / Medium)` | 系統架構設計、多步驟任務拆解、跨模組重構、複雜邏輯與資安把關、最終結果彙整與驗證（自動依您選用的 `High` 或 `Medium` 等級運行）。 |
+| **主代理 (Primary Orchestrator)** | `Gemini 4 Argon (High / Medium)`、`Claude (Opus / Sonnet)` 或前沿模型 | 系統架構設計、多步驟任務拆解、跨模組重構、複雜邏輯與資安把關、最終結果彙整與驗證（自動依您選用的思考等級運行）。 |
 | **一級子代理 (`flash-worker`)** | `flash` | 跨檔案程式碼探索、外部文件與網頁查證、撰寫與執行單元/整合測試、局部範圍程式碼修改與除錯。 |
 | **二級子代理 (`flash-lite-scout`)** | `flash_lite` | 快速檔案/符號查找、Grep/Glob 搜尋、Git/Log 狀態檢查、單一檔案檢視、排版檢查與輕量摘要。 |
 
@@ -23,8 +23,8 @@
 
   | Hook | 作用 |
   | :--- | :--- |
-  | `SessionStart` | 讀取 `~/.gemini/antigravity-cli/settings.json`，主模型若非 Argon 就**警告**並注入政策提示。只有設定 `AGY_ARGON_PIN_SETTINGS=1` 才會改寫檔案。 |
-  | `PreInvocation` | 每回合檢查實際 session 模型；若非 Argon/Pro 層級，每次 invocation 警告一次（可抓到 session 開始後在 UI 切換模型的情況）。重設每回合追蹤計數（`turn_edited_files`、`consecutive_failures`）。 |
+  | `SessionStart` | 讀取 `~/.gemini/antigravity-cli/settings.json`，主模型若非 Argon 或前沿模型就**警告**並注入政策提示。只有設定 `AGY_ARGON_PIN_SETTINGS=1` 才會改寫檔案。 |
+  | `PreInvocation` | 每回合檢查實際 session 模型；若非 Argon/Pro/Claude/前沿層級，每次 invocation 警告一次（可抓到 session 開始後在 UI 切換模型的情況）。重設每回合追蹤計數（`turn_edited_files`、`consecutive_failures`）。 |
   | `PreToolUse` `invoke_subagent` | 依 `TypeName`、`Workspace`、`Role`、`Prompt` 把每個子代理分到 `flash` / `flash_lite`。強訊號（測試、除錯、追蹤、修改動詞）一律優先於查找關鍵字。`flash-lite-scout` 收到修改任務會自動升級為 `flash-worker`。熔斷器觸發時予以攔截。 |
   | `PreToolUse` `send_message` | 拒絕對 `flash_lite` 收件者送出程式修改或多步驟（超過 3 條編號規則）的後續指令。 |
   | `PreToolUse` `run_workflow` | 拒絕 `agent(...)` 呼叫缺少 `model="flash"` / `model="flash_lite"` 的腳本。 |
@@ -44,8 +44,8 @@
 
 | 變數 | 效果 |
 | :--- | :--- |
-| `AGY_ARGON_PIN_SETTINGS=1` | 選擇性啟用：session 開始時把 `settings.json` 改回 Argon 模型（1.1.x 的行為）。 |
-| `AGY_ARGON_PRIMARY_MODEL` | 改寫時的目標模型：`Gemini 4 Argon (High)`（預設）或 `Gemini 4 Argon (Medium)`。 |
+| `AGY_ARGON_PIN_SETTINGS=1` | 選擇性啟用：session 開始時把 `settings.json` 改回 Argon 或前沿模型。 |
+| `AGY_ARGON_PRIMARY_MODEL` | 改寫時的目標模型：`Gemini 4 Argon (High)`（預設）、`Gemini 4 Argon (Medium)`、`Claude 3.7 Sonnet` 或任何受支援的前沿模型。 |
 | `AGY_ALLOW_NON_ARGON_PRIMARY=1` | 關閉所有主模型警告。 |
 | `AGY_ARGON_AUTO_ALLOW=1` | 啟用工作區範圍守衛（預設關閉）。 |
 | `AGY_ARGON_MAX_DIRECT_EDITS=<int>` | 主代理單回合直接修改工作區檔案數量上限（預設：3）。 |
