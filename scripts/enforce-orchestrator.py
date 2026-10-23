@@ -61,6 +61,11 @@ Environment variables:
     AGY_ARGON_ALLOW_DIRECT_LOGS=1     allow primary agent to read raw logs and transcripts
     AGY_ARGON_ALLOW_DIRECT_FASTPATH=1 allow primary agent direct edit-test loops and unlimited edits
     AGY_ARGON_CIRCUIT_BREAKER=0       disable the 2-failure circuit breaker
+    AGY_ARGON_LOCK_TIMEOUT=<sec>      per-session state lock wait, fail open (default: 2)
+    AGY_ARGON_APPEND_REPORT_FORMAT=0  stop appending the REPORT FORMAT block to subagent prompts
+    AGY_ARGON_WORKER_DOWNGRADE=0      keep plain read-only lookups typed flash-worker on flash
+    AGY_ARGON_JUDGE_URL=<url>         optional judge for low-confidence routing (falls back to
+                                      MITOSIS_JUDGE_URL); AGY_ARGON_JUDGE_THRESHOLD (default 0.9)
     AGY_ARGON_DEBUG=1                 append one JSON line per hook call to
                                       <artifactDirectoryPath>/argon_orchestrator_debug.log
 """
@@ -119,6 +124,7 @@ from argon_hook.routing import (  # noqa: F401,E402
     MUTATION_RE,
     classify_subagent,
     classify_subagent_tier,
+    decide_subagent,
 )
 from argon_hook.report import (  # noqa: F401,E402
     MAX_REPORT_BULLET_LINES,
@@ -129,8 +135,14 @@ from argon_hook.report import (  # noqa: F401,E402
     validate_subagent_report,
 )
 from argon_hook.state import (  # noqa: F401,E402
+    LOCK_FILENAME,
     SUBAGENT_ALIVE_STATE,
+    _HELD_LOCKS,
+    _RECENT_DECISIONS,
     _empty_state,
+    _peek_state,
+    _release_state_locks,
+    _releases_state_locks,
     _state_file,
     _subagent_metadata_dir,
     load_state,
@@ -201,6 +213,8 @@ def main() -> None:
     except Exception as exc:  # never break the agent loop because of the guard
         result = {"decision": "allow"} if mode in ("stop", "pre-tool-use") else {}
         sys.stderr.write(f"[argon-orchestrator] {mode} hook error: {exc!r}\n")
+    finally:
+        _release_state_locks()
     _debug_log(payload, mode, result)
 
     sys.stdout.write(json.dumps(result) + "\n")

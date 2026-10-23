@@ -2,7 +2,7 @@
 
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 
 
 DEFAULT_PRIMARY_MODEL = "Gemini 4 Argon (High)"
@@ -73,8 +73,22 @@ def is_primary_agent(payload: Dict[str, Any], state: Optional[Dict[str, Any]] = 
     return True
 
 
-def _env_flag(name: str) -> bool:
-    return os.environ.get(name, "").strip() == "1"
+def _get_env(*names: str, default: str = "") -> str:
+    """First non-empty environment variable among `names` (no CLAUDE_/CODEX_ expansion)."""
+    for name in names:
+        val = os.environ.get(name)
+        if val is not None and val.strip() != "":
+            return val.strip()
+    return default
+
+
+def _env_flag(*names: str) -> bool:
+    """True when the first non-empty variable among `names` equals "1"."""
+    for name in names:
+        val = os.environ.get(name)
+        if val is not None and val.strip() != "":
+            return val.strip() == "1"
+    return False
 
 
 def _get(d: Dict[str, Any], *keys: str, default: Any = None) -> Any:
@@ -83,3 +97,27 @@ def _get(d: Dict[str, Any], *keys: str, default: Any = None) -> Any:
         if key in d and d[key] is not None:
             return d[key]
     return default
+
+
+class Decision(NamedTuple):
+    """One routing decision with the evidence behind it.
+
+    `confidence` is a prior per rule (see routing.RULE_CONFIDENCE); `source`
+    says which layer decided: rule, judge or default.
+    """
+    tier: str
+    type_override: Optional[str]
+    confidence: float
+    source: str
+    rule: str
+    reason: str
+
+    def as_log(self) -> Dict[str, Any]:
+        return {
+            "tier": self.tier,
+            "type_override": self.type_override,
+            "confidence": self.confidence,
+            "source": self.source,
+            "rule": self.rule,
+            "reason": self.reason,
+        }

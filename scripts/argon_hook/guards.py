@@ -2,6 +2,7 @@
 
 import os
 import re
+import shlex
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -89,6 +90,81 @@ def _within_roots(target: Any, roots: List[Path]) -> bool:
         except ValueError:
             continue
     return False
+
+
+# Commands a scout may run through Bash. Anything else (and any
+# output redirection) is denied, so a read-only scout stays read-only.
+SCOUT_READ_ONLY_COMMANDS = {
+    "ls", "cat", "head", "tail", "wc", "rg", "grep", "egrep", "fgrep", "find", "stat", "file",
+    "du", "df", "pwd", "which", "tree", "sort", "cut", "jq", "basename",
+    "dirname", "realpath", "readlink", "echo", "date", "uname", "nl", "diff", "cmp", "md5sum",
+    "sha256sum",
+}
+
+
+SCOUT_GIT_SUBCOMMANDS = {
+    "status", "log", "show", "diff", "blame", "branch", "rev-parse", "ls-files", "ls-tree",
+    "grep", "describe", "shortlog", "reflog", "remote", "tag", "config",
+}
+
+
+SCOUT_FORBIDDEN_ARGS = {
+    "find": {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprintf", "-fls"},
+    "sort": {"-o", "--output"},
+    "tree": {"-o"},
+    "diff": {"--output"},
+    "log": {"--output"},
+    "show": {"--output"},
+    "branch": {"-d", "-D", "-m", "-M", "-c", "-C", "--delete", "--move", "--copy", "--set-upstream-to", "-u"},
+    "tag": {"-d", "--delete", "-a", "-s", "-f"},
+    "remote": {"add", "remove", "rm", "rename", "set-url", "prune", "set-head"},
+    "config": {"--add", "--unset", "--unset-all", "--replace-all", "--edit", "-e", "--global", "--system"},
+    "reflog": {"delete", "expire"},
+}
+
+
+_SCOUT_SEGMENT_SPLIT_RE = re.compile(r"\|\||&&|[|;\n]")
+
+
+_SCOUT_HARMLESS_REDIRECT_RE = re.compile(r"\d?>\s*/dev/null|2>&1")
+
+
+def scout_command_is_read_only(command: str) -> Tuple[bool, str]:
+    """Check a scout's Bash command against the read-only allowlist."""
+    cleaned = _SCOUT_HARMLESS_REDIRECT_RE.sub(" ", command)
+    if re.search(r"[<>`]|\$\(", cleaned):
+        return False, "redirection or command substitution"
+    for segment in _SCOUT_SEGMENT_SPLIT_RE.split(cleaned):
+        try:
+            words = shlex.split(segment)
+        except ValueError:
+            return False, "unparseable command"
+        while words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+            words = words[1:]
+        if not words:
+            continue
+        prog = os.path.basename(words[0])
+        if prog == "git":
+            sub = next((w for w in words[1:] if not w.startswith("-")), "")
+            if sub not in SCOUT_GIT_SUBCOMMANDS:
+                return False, f"git {sub or '(none)'} is not read-only"
+            if sub == "config" and not any(w in ("--get", "--get-all", "--list", "-l", "--get-regexp") for w in words):
+                return False, "git config without --get/--list"
+            bad = {w for w in words[2:] for f in SCOUT_FORBIDDEN_ARGS.get(sub, set())
+                   if w == f or (f.startswith("--") and w.startswith(f + "="))}
+            if sub == "branch" and len([w for w in words[2:] if not w.startswith("-")]) > 0 and not bad:
+                bad = {"<create>"}
+            if sub == "tag" and len([w for w in words[2:] if not w.startswith("-")]) > 0 and "-l" not in words and "--list" not in words:
+                bad = bad or {"<create>"}
+            if bad:
+                return False, f"git {sub} {sorted(bad)[0]} changes the repository"
+            continue
+        if prog not in SCOUT_READ_ONLY_COMMANDS:
+            return False, f"'{prog}' is not on the scout allowlist"
+        forbidden = SCOUT_FORBIDDEN_ARGS.get(prog, set())
+        if any(w in forbidden or any(w.startswith(f) for f in forbidden if f.startswith("--")) for w in words[1:]):
+            return False, f"'{prog}' with a writing option"
+    return True, ""
 
 
 def command_stays_in_workspace(command: str, cwd: str, roots: List[Path]) -> Tuple[bool, str]:

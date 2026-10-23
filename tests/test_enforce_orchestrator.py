@@ -116,6 +116,7 @@ class TestInvokeSubagent(HookBase):
         self.assertEqual((out["Model"], out["TypeName"]), ("flash", "flash-worker"))
 
     def test_correct_call_passes_untouched(self):
+        os.environ["AGY_ARGON_APPEND_REPORT_FORMAT"] = "0"  # the REPORT FORMAT append is tested separately
         res = eo.handle_pre_tool_use(self.tool("invoke_subagent", {"Subagents": [
             sub("Locate where the config loader is defined.", type_name="flash-lite-scout", model="flash_lite")]}))
         self.assertEqual(res, {"decision": "allow"})

@@ -20,7 +20,7 @@ from .common import (
 )
 from .guards import _handle_workspace_guard, _within_roots
 from .models import POLICY_NOTICE, check_primary_model_settings, is_argon_tier
-from .state import _state_file, load_state, save_state, sync_subagents
+from .state import _releases_state_locks, _state_file, load_state, save_state, sync_subagents
 from .tools import (
     _handle_define_subagent,
     _handle_invoke_subagent,
@@ -57,6 +57,7 @@ def handle_session_start(_payload: Dict[str, Any]) -> Dict[str, Any]:
 # pre-invocation
 # ---------------------------------------------------------------------------
 
+@_releases_state_locks
 def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
     state = load_state(payload)
     state["turn_edited_files"] = []
@@ -85,6 +86,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@_releases_state_locks
 def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
     tool_call = payload.get("toolCall")
     if not isinstance(tool_call, dict):
@@ -207,6 +209,7 @@ def _tool_failed(tool_name: str, payload: Dict[str, Any]) -> bool:
     return False
 
 
+@_releases_state_locks
 def handle_post_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
     tool_call = payload.get("toolCall") or {}
     tool_name = str(tool_call.get("name") or "")
@@ -233,6 +236,7 @@ def handle_post_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {}
 
 
+@_releases_state_locks
 def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
     if str(payload.get("terminationReason") or "") in SAFE_TERMINATION_REASONS:
         return {"decision": "allow"}

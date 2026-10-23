@@ -11,7 +11,8 @@ from .common import (
     SCOUT_TYPE,
     _get,
 )
-from .routing import MUTATION_RE, classify_subagent
+from .report import _append_report_format_enabled, append_report_format, prompt_has_report_format
+from .routing import MUTATION_RE, decide_subagent
 from .state import load_state, save_state, sync_subagents
 
 
@@ -36,15 +37,20 @@ def _handle_invoke_subagent(payload: Dict[str, Any], args: Dict[str, Any]) -> Di
         if not prompt:
             return {"decision": "deny", "reason": f"Subagent '{label}' has an empty Prompt."}
 
-        target_model, type_override, reason = classify_subagent(item)
+        decision = decide_subagent(item)
+        target_model, type_override, reason = decision.tier, decision.type_override, decision.reason
         if current_model != target_model or "model" in item:
             item.pop("model", None)
             item["Model"] = target_model
             changes.append(f"{label}: {current_model} -> {target_model} ({reason})")
-        if type_override and current_type.lower() != type_override:
+        if type_override and current_type.lower() != type_override.lower():
             item.pop("typeName", None)
             item["TypeName"] = type_override
             changes.append(f"{label}: TypeName {current_type} -> {type_override}")
+        if _append_report_format_enabled() and not prompt_has_report_format(prompt):
+            item.pop("prompt", None)
+            item["Prompt"] = append_report_format(prompt, target_model)
+            changes.append(f"{label}: appended REPORT FORMAT")
 
         workspace = str(_get(item, "Workspace", "workspace", default="inherit")).strip().lower()
         spawns.append(
