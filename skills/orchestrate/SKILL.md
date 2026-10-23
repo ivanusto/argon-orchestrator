@@ -1,7 +1,7 @@
 ---
 name: orchestrate
 description: >-
-  Structured 4-phase orchestration workflow that pins the primary agent (Gemini 4 Argon (High / Medium))
+  Structured 4-phase orchestration workflow that keeps a frontier primary agent (Gemini 4 Argon Medium / High, Claude Opus 5.5 or Claude Sonnet 5.5)
   as architect/coordinator and dispatches subagents pinned to flash_lite (for fast reconnaissance,
   searches, log checks, and single-file inspection) or flash (for multi-file analysis, test runs,
   and scoped code edits). Activate when the user invokes /orchestrate or requests multi-agent
@@ -10,7 +10,7 @@ description: >-
 
 # Argon Orchestrator Workflow (`/orchestrate`)
 
-Execute complex tasks using a 4-phase hierarchical orchestration loop with **Gemini 4 Argon (`High` or `Medium`)** as the primary agent and context-pinned **`flash_lite`** / **`flash`** subagents.
+Execute complex tasks using a 4-phase hierarchical orchestration loop with a frontier model (**Gemini 4 Argon `Medium` / `High`**, **Claude Opus 5.5** or **Claude Sonnet 5.5**) as the primary agent and context-pinned **`flash_lite`** / **`flash`** subagents.
 
 ---
 
@@ -22,19 +22,21 @@ When context must be gathered across the workspace before planning:
    - Prefer `TypeName: "flash-lite-scout"` (or `TypeName: "research"`) with `"Model": "flash_lite"`.
    - Keep each prompt narrowly scoped and end it with the four-header bounded REPORT FORMAT from `rules/AGENTS.md`.
    - Scouts are read-only and have no web tools; anything that needs `search_web` or an edit goes to Phase 3.
+   - If a scout reports `FAILED` or `BLOCKED`, the hook escalates the next scout dispatch to `flash-worker` once (within 3 dispatches or 30 minutes).
+   - Prompts missing the four report headers get the REPORT FORMAT block appended, and a subagent's own report to you is validated (invalid ones are denied once so it resends).
 3. End your turn after the `invoke_subagent` call. Antigravity wakes you when the scouts report.
 
 ---
 
-## Phase 2: Architecture & Decomposition (Primary `Gemini 4 Argon (High / Medium)`)
+## Phase 2: Architecture & Decomposition (Primary agent)
 
-Perform high-reasoning work directly on the primary Argon agent:
+Perform high-reasoning work directly on the primary agent:
 1. Synthesize the `flash_lite` reconnaissance results.
 2. Design the architecture, interfaces, invariants, and step-by-step execution plan.
 3. Partition the implementation and verification into independent work units and classify each unit's tier:
    - **`flash_lite`**: Config/format validation, quick status checks, single-file read verification.
    - **`flash`**: Multi-file research, test authoring & execution, localized code changes, module debugging.
-   - **Primary Argon**: Cross-cutting core refactors, subtle concurrency/security logic, final integration.
+   - **Primary agent**: Cross-cutting core refactors, subtle concurrency/security logic, final integration.
 
 ---
 
@@ -49,9 +51,9 @@ Perform high-reasoning work directly on the primary Argon agent:
 
 ---
 
-## Phase 4: Synthesis & Verification (Primary `Gemini 4 Argon (High / Medium)`)
+## Phase 4: Synthesis & Verification (Primary agent)
 
 1. Inspect the outputs and diffs produced by all `flash` workers.
-2. Resolve any cross-module integration issues directly on the primary Argon agent.
+2. Resolve any cross-module integration issues directly on the primary agent.
 3. Run final verification (or dispatch a `flash-worker` verifier) and present a concise summary with clickable file and symbol links.
 4. Kill every `Workspace: "branch"` worker with `manage_subagents(Action="kill")` once its changes are merged or discarded. The Stop hook blocks completion once if any branch worker is still alive.

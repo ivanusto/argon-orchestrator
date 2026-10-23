@@ -12,6 +12,7 @@ from .common import (
     _get,
 )
 from .report import _append_report_format_enabled, append_report_format, prompt_has_report_format
+from .lifecycle import apply_escalation, scan_new_messages
 from .routing import MUTATION_RE, decide_subagent
 from .state import load_state, save_state, sync_subagents
 
@@ -28,6 +29,22 @@ def _handle_invoke_subagent(payload: Dict[str, Any], args: Dict[str, Any]) -> Di
     spawns: List[Dict[str, Any]] = []
 
     for idx, item in enumerate(updated):
+        if isinstance(item, dict) and not str(_get(item, "Prompt", "prompt", default="")).strip():
+            label = _get(item, "Role", "role", default=None) or str(_get(item, "TypeName", "typeName", default="")).strip() or f"subagent[{idx}]"
+            return {"decision": "deny", "reason": f"Subagent '{label}' has an empty Prompt."}
+
+    # Read newly delivered reports first so a scout failure can arm the escalation
+    # that this very call consumes. State-free calls (no messages) are unaffected.
+    state = load_state(payload)
+    scan_new_messages(payload, state)
+    items = [it for it in updated if isinstance(it, dict)]
+    decisions = [decide_subagent(it) for it in items]
+    decisions, escalated = apply_escalation(state, decisions)
+    decision_for = {id(it): d for it, d in zip(items, decisions)}
+    escalated_idx = int(escalated["index"]) if escalated else -1
+    escalated_item = items[escalated_idx] if escalated else None
+
+    for idx, item in enumerate(updated):
         if not isinstance(item, dict):
             continue
         current_model = str(_get(item, "Model", "model", default="inherit")).strip()
@@ -37,7 +54,7 @@ def _handle_invoke_subagent(payload: Dict[str, Any], args: Dict[str, Any]) -> Di
         if not prompt:
             return {"decision": "deny", "reason": f"Subagent '{label}' has an empty Prompt."}
 
-        decision = decide_subagent(item)
+        decision = decision_for[id(item)]
         target_model, type_override, reason = decision.tier, decision.type_override, decision.reason
         if current_model != target_model or "model" in item:
             item.pop("model", None)
@@ -60,10 +77,10 @@ def _handle_invoke_subagent(payload: Dict[str, Any], args: Dict[str, Any]) -> Di
                 "model": target_model,
                 "workspace": workspace,
                 "active_branch": workspace == "branch",
+                **({"escalated": True} if item is escalated_item else {}),
             }
         )
 
-    state = load_state(payload)
     state.setdefault("pending_spawns", []).extend(spawns)
     save_state(payload, state)
 
@@ -139,7 +156,7 @@ def workflow_model_violations(script: str) -> List[str]:
         if not m:
             violations.append(f"agent() call #{n} has no model= argument")
             continue
-        literal, ident = m.group(1), m.group(2)
+        literal = m.group(1)
         if literal is not None and literal.strip().lower() not in ALLOWED_SUBAGENT_MODELS:
             violations.append(f"agent() call #{n} uses model={literal!r}")
         # A bare identifier (variable) is accepted; it cannot be checked statically.

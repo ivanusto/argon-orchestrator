@@ -10,31 +10,23 @@ from .common import ALLOWED_PRIMARY_MODELS, DEFAULT_PRIMARY_MODEL, _env_flag
 
 
 SMALL_TIER_RE = re.compile(r"\b(flash|lite|mini|nano|haiku)\b", re.IGNORECASE)
-FRONTIER_TOKENS = (
-    "argon",
-    "pro",
-    "ultra",
-    "claude",
-    "opus",
-    "sonnet",
-    "gpt-4",
-    "gpt-5",
-    "o1",
-    "o3",
-    "o4",
-    "deepseek",
-    "grok",
-)
+# Frontier primaries: Gemini 4 Argon Medium/High and Claude Opus/Sonnet (any version).
+# Argon Low, Flash, GPT-OSS and every other model are not frontier.
+FRONTIER_TOKENS = ("argon", "claude", "opus", "sonnet")
+ALLOWED_PRIMARY_TEXT = "Gemini 4 Argon (Medium or High) or Claude Opus/Sonnet"
 
 
 def is_argon_tier(model_name: str) -> bool:
-    """True for Argon / Pro / Ultra / Claude / frontier models; False for Flash, Lite, Mini, Nano, Haiku, Auto or empty."""
-    normalized = (model_name or "").strip().lower()
+    """True for Gemini 4 Argon Medium/High and Claude Opus/Sonnet, by display name or id."""
+    normalized = re.sub(r"[_\s]+", "-", (model_name or "").strip().lower())
     if not normalized or normalized in {"auto", "none", "inherit"}:
         return False
-    if SMALL_TIER_RE.search(normalized):
+    words = re.sub(r"[^a-z0-9.]+", " ", normalized)
+    if SMALL_TIER_RE.search(words):
         return False
-    return any(token in normalized for token in FRONTIER_TOKENS)
+    if "argon" in words:
+        return not re.search(r"\blow\b", words)
+    return any(token in words for token in ("claude", "opus", "sonnet"))
 
 
 is_frontier_tier = is_argon_tier

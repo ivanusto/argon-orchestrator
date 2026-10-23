@@ -8,12 +8,12 @@ Modes (first CLI argument):
 session-start
     Reads ~/.gemini/antigravity-cli/settings.json and injects the orchestration
     policy notice. By default it only WARNS when the configured primary model is
-    not an Argon/Pro-tier model. Set AGY_ARGON_PIN_SETTINGS=1 to opt in to the
+    not Gemini 4 Argon Medium/High or Claude Opus/Sonnet. Set AGY_ARGON_PIN_SETTINGS=1 to opt in to the
     legacy behaviour that rewrites settings.json back to an Argon model.
 
 pre-invocation
-    Checks the live session model (payload.modelName) on every turn. If it is not
-    Argon/Pro-tier, injects a one-time ephemeral warning per invocation so the
+    Checks the live session model (payload.modelName) on every turn. If it is
+    not an allowed primary model, injects a one-time ephemeral warning per invocation so the
     primary agent asks the user to switch models. Resets per-turn tracking
     (turn_edited_files, consecutive_failures).
 
@@ -56,6 +56,9 @@ Environment variables:
     AGY_ARGON_PRIMARY_MODEL=<name>    target model when pinning (default: Gemini 4 Argon (High))
     AGY_ALLOW_NON_ARGON_PRIMARY=1     silence all primary-model warnings
     AGY_ANTIGRAVITY_SETTINGS=<path>   override the settings.json location (tests)
+    AGY_ARGON_ENFORCE_REPORT=0        let invalid subagent reports through (default: deny once, then allow)
+    AGY_ARGON_ESCALATE=0              disable scout FAILED/BLOCKED -> flash-worker escalation
+    AGY_ARGON_GEMINI_CONFIG_DIR=<dir> override ~/.gemini/config (mitosis coexistence check; tests)
     AGY_ARGON_AUTO_ALLOW=1            enable the workspace scope guard (off by default)
     AGY_ARGON_MAX_DIRECT_EDITS=<int>  max distinct workspace file edits per turn (default: 3)
     AGY_ARGON_ALLOW_DIRECT_LOGS=1     allow primary agent to read raw logs and transcripts
@@ -83,7 +86,7 @@ _HERE = str(Path(__file__).resolve().parent)
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-from argon_hook import common, guards, handlers, models, report, routing, state, tools  # noqa: F401,E402
+from argon_hook import common, guards, handlers, lifecycle, models, report, routing, state, tools  # noqa: F401,E402
 from argon_hook.common import (  # noqa: F401,E402
     AGENT_CALL_RE,
     ALLOWED_PRIMARY_MODELS,

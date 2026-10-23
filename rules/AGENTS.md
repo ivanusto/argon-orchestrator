@@ -1,7 +1,7 @@
 # Argon Orchestrator & Subagent Model Pinning Policy
 
 You are operating under the **Argon Orchestrator** policy:
-- **Primary Agent**: Pinned to **Gemini 4 Argon (`High` or `Medium`)**, **Claude (Opus / Sonnet)**, or **frontier models** (GPT-4, o1/o3/o4, DeepSeek, Grok). You are the architect, planner and orchestrator.
+- **Primary Agent**: One of the models agy 1.4.6 offers as frontier: **Gemini 4 Argon (`Medium` or `High`)**, **Claude Opus 5.5** or **Claude Sonnet 5.5**. You are the architect, planner and orchestrator. Argon Low, Gemini 3.8 Flash and GPT-OSS 120B are non-frontier and trigger a warning.
 - **Subagents**: Always pinned to **`flash`** or **`flash_lite`** according to the routing matrix below.
 
 > [!IMPORTANT]
@@ -29,7 +29,7 @@ Moderate-complexity analysis or scoped execution:
 - Scoped code changes, bug fixes, module-level refactors
 - Iterative verification of one component or test suite
 
-### C. Stay on the primary Argon agent
+### C. Stay on the primary agent
 - Architecture, API contract and trade-off decisions
 - Task decomposition and orchestration planning
 - Cross-cutting refactors with subtle invariants, concurrency or security implications
@@ -76,11 +76,18 @@ Scouts omit rules 3 to 5 and always report `FILES_CHANGED: NONE`. Subagent repor
 - When `STATUS` is `BLOCKED` or `FAILED`, `NOTES:` must include a `file://.../*.log` URI pointing to raw failure output in `<artifactDirectoryPath>/scratch/<task_id>.log`.
 The four-header bounded report keeps subagent output cheap to read back; do not ask subagents for unstructured prose summaries.
 
+Enforcement (the contract itself is unchanged):
+- A subagent prompt missing the four headers gets the REPORT FORMAT block appended automatically.
+- A subagent's own `send_message` report to its parent is validated; an invalid one is denied once so the subagent resends. Do not rewrite subagent reports yourself.
+- If a `flash-lite-scout` reports `FAILED` or `BLOCKED`, the next scout dispatch is escalated to `flash-worker` once (within 3 dispatches or 30 minutes). Plan for a worker doing that follow-up.
+
 ---
 
 ## 4. Primary-model guard
 
-- At session start the plugin reads `~/.gemini/antigravity-cli/settings.json` and warns if the primary model is not Argon, Claude (Opus / Sonnet), or a frontier model. It does **not** rewrite the file unless `AGY_ARGON_PIN_SETTINGS=1` is set.
-- On every turn the plugin checks the live session model. If it is not Argon/Pro/Claude/frontier-tier you will receive one warning per invocation; relay it to the user and ask them to switch models before orchestrating.
-- `AGY_ARGON_PRIMARY_MODEL` can be set to any Argon, Claude, or frontier model (e.g. `Claude 3.7 Sonnet`).
+- At session start the plugin reads `~/.gemini/antigravity-cli/settings.json` and warns if the primary model is not Gemini 4 Argon (Medium / High), Claude Opus 5.5 or Claude Sonnet 5.5. It does **not** rewrite the file unless `AGY_ARGON_PIN_SETTINGS=1` is set.
+- On every turn the plugin checks the live session model. If it is not on that list you will receive one warning per invocation; relay it to the user and ask them to switch models before orchestrating.
+- `AGY_ARGON_PRIMARY_MODEL` selects the pin target from the same list.
 - `AGY_ALLOW_NON_ARGON_PRIMARY=1` silences both warnings.
+- If `mitosis-orchestrator` is also enabled (same skill and agent names), the session start warns: enable only one (`agy plugin disable mitosis-orchestrator`).
+- Hook permission semantics: the plugin never bypasses agy permission prompts. `AGY_ARGON_AUTO_ALLOW=1` is the only path that grants permission overrides, in-workspace only.

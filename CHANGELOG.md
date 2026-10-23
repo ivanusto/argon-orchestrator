@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.0.0 — 2026-10-23
+
+Antigravity (agy)-only release.
+
+### Breaking
+- Primary-model list narrowed to what agy 1.4.6 offers: Gemini 4 Argon (Medium / High), Claude Opus 5.5, Claude Sonnet 5.5. Argon Low, Gemini 3.8 Flash and GPT-OSS 120B are warned about as non-frontier.
+- GPT-4 / o-series / DeepSeek / Grok and generic Gemini Pro / Ultra are no longer accepted as primary models, including via `AGY_ARGON_PRIMARY_MODEL`.
+
+### Added
+- Code split into `scripts/argon_hook/` (`common`, `models`, `routing`, `judge`, `report`, `state`, `guards`, `tools`, `handlers`); entry point stays `scripts/enforce-orchestrator.py`.
+- Routing engine ported verbatim from mitosis-orchestrator 2.3.0: `Decision` with confidence, `scout-unproven` rule (scout needs positive read-only evidence), worker-lookup downgrade, Chinese rules, optional judge (`AGY_ARGON_JUDGE_URL`, fallback `MITOSIS_JUDGE_URL`).
+- `tests/routing_cases.jsonl` (855) and `routing_holdout` v1 to v8 (40 each); `tests/test_routing_eval.py` thresholds: accuracy >= 0.95, cost errors <= 0.05, zero worker tasks to the scout. `scripts/routing-parity.py <mitosis_repo>` proves 0 differences.
+- State lock (`flock`, fail open, `AGY_ARGON_LOCK_TIMEOUT`) and atomic state saves.
+- REPORT FORMAT block auto-appended to subagent prompts missing the four headers (`AGY_ARGON_APPEND_REPORT_FORMAT=0` disables).
+- Report enforcement: a subagent's own `send_message` report to its parent is validated; invalid reports are denied once so the subagent resends (`AGY_ARGON_ENFORCE_REPORT=0`).
+- Scout read-only layer for `flash-lite-scout` subagents.
+- Scout escalation: after a scout reports `FAILED` or `BLOCKED`, the next scout dispatch is escalated to `flash-worker` once, within 3 dispatches or 30 minutes (`AGY_ARGON_ESCALATE=0`). First agy implementation.
+- `AGY_ARGON_WORKER_DOWNGRADE=0` and judge tuning variables (`AGY_ARGON_JUDGE_{KEY,MODEL,TIMEOUT,MIN_CONFIDENCE,ALLOW_HTTP_KEY,THRESHOLD}`).
+- Coexistence: `SessionStart` warns when mitosis-orchestrator is also enabled (same skill and agent names; use `agy plugin disable mitosis-orchestrator`).
+- Engineering scaffolding: `pyproject.toml`, GitHub Actions CI (unittest on 3.11 to 3.13, ruff, vermin 3.8), `tests/test_packaging.py`, `CONTRIBUTING.md`, `SECURITY.md`.
+
+### Changed
+- README, README.zh-TW, `rules/AGENTS.md` and the `/orchestrate` skill rewritten for agy only; agent files no longer imply an Argon-only primary.
+- The four-header report contract is unchanged.
+
+### Verified
+- agy 1.4.6 (2026-10-23): hook `{}` is a deny; `{"decision":"allow"}` means no objection and agy still shows its own permission prompt for commands and file writes. The plugin keeps returning explicit allow when it has no opinion and never bypasses agy prompts; `AGY_ARGON_AUTO_ALLOW=1` is the only path that grants `permissionOverrides` (in-workspace only).
+
 ## 1.4.0 — 2026-10-19
 
 ### Added

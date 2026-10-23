@@ -19,7 +19,17 @@ from .common import (
     is_primary_agent,
 )
 from .guards import _handle_workspace_guard, _within_roots
-from .models import POLICY_NOTICE, check_primary_model_settings, is_argon_tier
+from .lifecycle import (
+    COEXISTENCE_WARNING,
+    SCOUT_BLOCKED_TOOLS,
+    check_subagent_report,
+    detect_subagent,
+    enforce_report_enabled,
+    mitosis_active,
+    scan_new_messages,
+)
+from .common import SCOUT_TYPE
+from .models import ALLOWED_PRIMARY_TEXT, POLICY_NOTICE, check_primary_model_settings, is_argon_tier
 from .state import _releases_state_locks, _state_file, load_state, save_state, sync_subagents
 from .tools import (
     _handle_define_subagent,
@@ -30,7 +40,13 @@ from .tools import (
 )
 
 
-def handle_session_start(_payload: Dict[str, Any]) -> Dict[str, Any]:
+@_releases_state_locks
+def handle_session_start(payload: Dict[str, Any]) -> Dict[str, Any]:
+    # Subagent conversations fire session-start too. They must not receive the orchestration
+    # policy (they cannot delegate), the model warning or the coexistence warning.
+    if payload.get("artifactDirectoryPath"):
+        if detect_subagent(payload, None) is not None:
+            return {}
     status, model = check_primary_model_settings()
     if status == "ok":
         note = f"Primary model is '{model}'."
@@ -38,14 +54,16 @@ def handle_session_start(_payload: Dict[str, Any]) -> Dict[str, Any]:
         note = f"Restored primary model pin to '{model}' in settings.json (AGY_ARGON_PIN_SETTINGS=1)."
     elif status == "warn":
         note = (
-            f"WARNING: settings.json primary model is '{model or 'unset'}', not an Argon model. "
-            "Ask the user to switch to Gemini 4 Argon (High or Medium) before orchestrating, "
+            f"WARNING: settings.json primary model is '{model or 'unset'}', not an allowed primary model. "
+            f"Ask the user to switch to {ALLOWED_PRIMARY_TEXT} before orchestrating, "
             "or set AGY_ALLOW_NON_ARGON_PRIMARY=1 to silence this."
         )
     elif status == "silenced":
         note = f"Primary model is '{model}' (non-Argon warnings silenced)."
     else:
         note = "settings.json not found; the live model is checked on every turn instead."
+    if mitosis_active():
+        note = f"{note} {COEXISTENCE_WARNING}"
     return {
         "injectSteps": [
             {"systemMessage": {"systemMessage": f"[Argon Orchestrator Active] {note} {POLICY_NOTICE}"}}
@@ -60,30 +78,37 @@ def handle_session_start(_payload: Dict[str, Any]) -> Dict[str, Any]:
 @_releases_state_locks
 def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
     state = load_state(payload)
+    is_sub = detect_subagent(payload, state) is not None
     state["turn_edited_files"] = []
     state["consecutive_failures"] = 0
-    save_state(payload, state)
+    inject: List[Dict[str, Any]] = []
+
+    if not is_sub:
+        scan_new_messages(payload, state)
+        for item in state.pop("invalid_report_senders", []) or []:
+            inject.append({
+                "ephemeralMessage": (
+                    f"[Argon Orchestrator] Subagent '{item.get('label')}' broke the report contract "
+                    f"({item.get('problem')}). Treat its report as unverified: check the claimed work "
+                    "yourself or re-dispatch the task before relying on it."
+                )
+            })
 
     model_name = str(payload.get("modelName") or "")
-    if not model_name or is_argon_tier(model_name) or _env_flag("AGY_ALLOW_NON_ARGON_PRIMARY"):
-        return {}
-    key = f"{payload.get('conversationId', '')}:{payload.get('invocationNum', 0)}"
-    warned: List[str] = state.setdefault("warned_invocations", [])
-    if key in warned:
-        return {}
-    warned.append(key)
-    save_state(payload, state)
-    return {
-        "injectSteps": [
-            {
+    if not is_sub and model_name and not is_argon_tier(model_name) and not _env_flag("AGY_ALLOW_NON_ARGON_PRIMARY"):
+        key = f"{payload.get('conversationId', '')}:{payload.get('invocationNum', 0)}"
+        warned: List[str] = state.setdefault("warned_invocations", [])
+        if key not in warned:
+            warned.append(key)
+            inject.append({
                 "ephemeralMessage": (
                     f"[Argon Orchestrator] The active session model is '{model_name}', which is "
-                    "not an Argon/Pro-tier model. Tell the user to switch Model Selection to "
-                    "Gemini 4 Argon (High or Medium) before continuing orchestration work."
+                    f"not an allowed primary model. Tell the user to switch Model Selection to "
+                    f"{ALLOWED_PRIMARY_TEXT} before continuing orchestration work."
                 )
-            }
-        ]
-    }
+            })
+    save_state(payload, state)
+    return {"injectSteps": inject} if inject else {}
 
 
 @_releases_state_locks
@@ -97,6 +122,32 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
         return _allow("Argon Orchestrator: pass-through.")
 
     state = load_state(payload)
+    had_cache = "self_subagent" in state
+    sub = detect_subagent(payload, state)
+    if sub is not None and not had_cache:
+        save_state(payload, state)
+
+    if sub is not None:
+        parent_cid, sub_type, _role = sub
+        # Read-only layer for scouts: report BLOCKED instead of changing anything.
+        # Only the flash-lite-scout type; the built-in `research` type legitimately runs commands.
+        if sub_type.lower() == SCOUT_TYPE and tool_name in SCOUT_BLOCKED_TOOLS:
+            save_state(payload, state)
+            return _deny(
+                f"[Argon Orchestrator] '{tool_name}' is not allowed for a read-only {SCOUT_TYPE}. "
+                "Do not change anything: send your report to the parent with STATUS: BLOCKED "
+                "(the work needs a flash-worker) and a file:// .log scratch URI in NOTES."
+            )
+        if tool_name == "send_message":
+            recipient = str(_get(args, "Recipient", "recipient", default="")).strip()
+            if recipient == parent_cid:
+                reason = check_subagent_report(
+                    state, str(_get(args, "Message", "message", default="")), enforce_report_enabled()
+                )
+                save_state(payload, state)
+                if reason:
+                    return _deny(reason)
+                return _allow("Argon Orchestrator: pass-through.")
 
     # Circuit breaker: if consecutive failures >= 2 and breaker is not disabled ("0"),
     # block retry loops on commands and subagents.
@@ -120,7 +171,7 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
         return _handle_manage_subagents(payload, args)
 
     # Primary agent guards (context hygiene and fast-path budget)
-    if is_primary_agent(payload, state):
+    if sub is None and is_primary_agent(payload, state):
         # Context hygiene: block direct reads of raw logs or transcripts by primary agent
         if not _env_flag("AGY_ARGON_ALLOW_DIRECT_LOGS") and tool_name in READ_TOOLS:
             target = str(
@@ -244,6 +295,9 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"decision": "allow"}
 
     state = load_state(payload)
+    if detect_subagent(payload, state) is not None:
+        save_state(payload, state)
+        return {"decision": "allow"}  # branch-worker reminder is primary-only
     sync_subagents(payload, state)
     active = [cid for cid, m in state.get("subagents", {}).items() if m.get("active_branch")]
     active += [m.get("role", "worker") for m in state.get("pending_spawns", []) if m.get("active_branch")]

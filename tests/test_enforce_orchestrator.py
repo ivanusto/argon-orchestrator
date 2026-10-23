@@ -277,19 +277,9 @@ class TestArtifactSync(HookBase):
 class TestPrimaryModelGuard(HookBase):
     def test_is_argon_tier(self):
         self.assertTrue(eo.is_argon_tier("Gemini 4 Argon (High)"))
-        self.assertTrue(eo.is_argon_tier("gemini-3.1-pro-preview"))
-        self.assertTrue(eo.is_argon_tier("gemini-ultra"))
         self.assertTrue(eo.is_argon_tier("claude-3-7-sonnet-20250219"))
         self.assertTrue(eo.is_argon_tier("Claude 3.5 Sonnet"))
         self.assertTrue(eo.is_argon_tier("Claude 3 Opus"))
-        self.assertTrue(eo.is_argon_tier("gpt-4o"))
-        self.assertTrue(eo.is_argon_tier("gpt-5-preview"))
-        self.assertTrue(eo.is_argon_tier("o1"))
-        self.assertTrue(eo.is_argon_tier("o1-preview"))
-        self.assertTrue(eo.is_argon_tier("o3"))
-        self.assertTrue(eo.is_argon_tier("o4"))
-        self.assertTrue(eo.is_argon_tier("deepseek-reasoner"))
-        self.assertTrue(eo.is_argon_tier("grok-3"))
 
         for bad in (
             "gemini-3-flash",
@@ -304,6 +294,9 @@ class TestPrimaryModelGuard(HookBase):
             "o3-mini",
             "o4-mini",
             "nano-model",
+            "gemini-3.1-pro-preview", "gemini-ultra", "gpt-4o", "gpt-5-preview", "o1", "o3", "o4",
+            "deepseek-reasoner", "grok-3", "gpt-oss-120b-medium", "GPT-OSS 120B (Medium)",
+            "Gemini 4 Argon (Low)", "gemini-4-argon-low",
         ):
             self.assertFalse(eo.is_argon_tier(bad), bad)
 
@@ -321,7 +314,7 @@ class TestPrimaryModelGuard(HookBase):
         self.assertEqual(eo.handle_pre_invocation(dict(p, invocationNum=3)), {})
 
     def test_pre_invocation_allows_frontier_models(self):
-        for model in ("Claude 3.7 Sonnet", "Claude 3 Opus", "gpt-4o", "o3", "deepseek-reasoner"):
+        for model in ("Claude 3.7 Sonnet", "Claude 3 Opus", "Claude Opus 5.5 (High)", "gemini-4-argon-high"):
             p = dict(self.payload, modelName=model, invocationNum=10)
             self.assertEqual(eo.handle_pre_invocation(p), {}, f"Should allow {model}")
 

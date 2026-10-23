@@ -1,8 +1,8 @@
 {
   "name": "argon-orchestrator",
   "displayName": "Argon Orchestrator",
-  "version": "1.4.0",
-  "description": "Pins Gemini 4 Argon (High or Medium), Claude (Opus / Sonnet), or frontier models as the primary orchestrator and routes every subagent to flash or flash_lite by context. Guards send_message, run_workflow and define_subagent, tracks branch worktrees until they are killed, and enforces a four-line subagent report format.",
+  "version": "2.0.0",
+  "description": "Antigravity (agy)-only orchestrator. Pins a frontier primary model (Gemini 4 Argon Medium/High, Claude Opus 5.5 or Sonnet 5.5) and routes every subagent to flash or flash_lite with a confidence-scored rule engine. Guards send_message, run_workflow and define_subagent, escalates failed scouts to flash-worker, and enforces a four-header subagent report.",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
     "/orchestrate Decompose this task across flash-lite scouts and flash workers",

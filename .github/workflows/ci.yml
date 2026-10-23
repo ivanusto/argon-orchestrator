@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main, v2-agy]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit tests, routing eval and packaging checks
+        run: python -m unittest discover -s tests -v
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install ruff==0.17.1 vermin==1.9.2
+      - name: ruff (correctness rules from pyproject.toml)
+        run: ruff check --output-format github .
+      - name: Hook scripts stay Python 3.8 compatible
+        run: vermin --no-tips --violations -t=3.8 scripts
