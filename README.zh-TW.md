@@ -31,7 +31,7 @@
 | :--- | :--- |
 | `SessionStart` | 檢查 `~/.gemini/antigravity-cli/settings.json` 的主控模型，不在上述清單時發出警告；若 `mitosis-orchestrator` 同時啟用也會警告。僅在 `AGY_ARGON_PIN_SETTINGS=1` 時改寫設定。 |
 | `PreInvocation` | 每回合重新檢查實際模型（可偵測介面切換模型），並重設每回合追蹤。 |
-| `PreToolUse` `invoke_subagent` | 將每個子代理路由至 `flash` 或 `flash_lite`；缺少四標頭的提示會自動附加 REPORT FORMAT 區塊；套用 scout 升級；斷路器跳脫時拒絕。 |
+| `PreToolUse` `invoke_subagent` | 將每個子代理路由至 `flash` 或 `flash_lite`；缺少四標頭的提示會自動附加 REPORT FORMAT 區塊；套用 scout 升級；斷路器跳脫時拒絕。agy 1.4.6 對每個子代理各送出一次扁平的 `invoke_subagent` 呼叫，兩種形式皆予處理。 |
 | `PreToolUse` `send_message` | 拒絕對 `flash_lite` 收件者下達修改程式碼或多步驟的後續指令；驗證子代理回報給上層的訊息，無效時拒絕一次使其重送。 |
 | `PreToolUse` `run_workflow` / `define_subagent` | 拒絕未指定 `model="flash"` 或 `"flash_lite"` 的 `agent(...)`；強制 `enable_subagent_tools=false`。 |
 | `PreToolUse` scout 唯讀層 | `flash-lite-scout` 子代理僅能使用唯讀工具與指令。 |
@@ -47,11 +47,15 @@
 
 `tests/routing_cases.jsonl`（855 筆）與 `tests/routing_holdout*.jsonl`（v1 至 v8，各 40 筆）支撐 `tests/test_routing_eval.py`：準確率 >= 0.95、成本誤判 <= 0.05、worker 任務送至 scout 的數量為零。`scripts/routing-parity.py <mitosis_repo>` 可證明與 mitosis 的差異為 0。
 
+agy 的 `Role` 僅為標籤（例如「Add Scout」），不影響路由；關鍵字規則只讀取 `Prompt`，因此修改與查詢的意圖請寫在 Prompt 中。
+
 ### 升級與回報強制
 
 - **升級**：scout 回報 `FAILED` 或 `BLOCKED` 時，下一次 scout 派工會升級為 `flash-worker`，僅一次，且須在 3 次派工或 30 分鐘內。以 `AGY_ARGON_ESCALATE=0` 停用。
 - **回報格式**：缺少四標頭的子代理提示會自動附加 REPORT FORMAT 區塊（`AGY_ARGON_APPEND_REPORT_FORMAT=0` 可停用）。
 - **回報強制**：子代理傳給上層的 `send_message` 會依合約驗證；無效回報會被拒絕一次，使其重送（`AGY_ARGON_ENFORCE_REPORT=0` 可停用）。
+
+**關於 `inheritCustomizations`**：內建代理皆設定 `inheritCustomizations: false`，因此 agy 不會在 `flash-lite-scout` 或 `flash-worker` 子代理內執行外掛 hook。子代理端的回報拒絕（對 `send_message` 拒絕一次）與 scout 唯讀層，僅對會繼承自訂設定的子代理類型（內建 research/self）生效。對內建類型而言，由上層端的訊息掃描（無效回報的暫時性通知）與 scout 失敗升級負責把關，且 agy 本身會強制執行代理的工具清單（已驗證：被派予修改任務的 scout 無法修改檔案）。
 
 合約為 `STATUS`、`FILES_CHANGED`、`VERIFICATION`、`NOTES`；`NOTES` 下最多 10 條項目；總長度不超過 1,600 字元；`BLOCKED` 或 `FAILED` 時須附 `file://` 日誌 URI。
 

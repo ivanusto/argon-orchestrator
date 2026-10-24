@@ -31,7 +31,7 @@ Supported primary models (as offered by agy 1.4.6): **Gemini 4 Argon (Medium / H
 | :--- | :--- |
 | `SessionStart` | Checks the primary model in `~/.gemini/antigravity-cli/settings.json` and warns if it is not on the list above. Warns when `mitosis-orchestrator` is also enabled. Rewrites settings only with `AGY_ARGON_PIN_SETTINGS=1`. |
 | `PreInvocation` | Re-checks the live model each turn (catches UI model switches) and resets per-turn tracking. |
-| `PreToolUse` `invoke_subagent` | Routes every subagent to `flash` or `flash_lite`, appends the REPORT FORMAT block to prompts missing the four headers, applies scout escalation, and denies when the circuit breaker is tripped. |
+| `PreToolUse` `invoke_subagent` | Routes every subagent to `flash` or `flash_lite`, appends the REPORT FORMAT block to prompts missing the four headers, applies scout escalation, and denies when the circuit breaker is tripped. agy 1.4.6 sends one flat `invoke_subagent` call per subagent; both forms are handled. |
 | `PreToolUse` `send_message` | Denies code-change or multi-step follow-ups to a `flash_lite` recipient. Validates a subagent's own report to its parent and denies an invalid one once so it resends. |
 | `PreToolUse` `run_workflow` / `define_subagent` | Denies `agent(...)` calls without `model="flash"` or `"flash_lite"`; forces `enable_subagent_tools=false`. |
 | `PreToolUse` scout layer | `flash-lite-scout` subagents are limited to read-only tools and commands. |
@@ -47,11 +47,15 @@ The engine is ported verbatim from mitosis-orchestrator 2.3.0. Each decision car
 
 `tests/routing_cases.jsonl` (855 cases) and `tests/routing_holdout*.jsonl` (v1 to v8, 40 each) back `tests/test_routing_eval.py`: accuracy >= 0.95, cost errors <= 0.05, zero worker tasks sent to the scout. `scripts/routing-parity.py <mitosis_repo>` proves 0 differences against mitosis.
 
+The agy `Role` is only a label (for example "Add Scout") and does not affect routing; the keyword rules read the `Prompt` alone, so state edits and lookups in the Prompt.
+
 ### Escalation and report enforcement
 
 - **Escalation.** If a scout reports `FAILED` or `BLOCKED`, the next scout dispatch is escalated to `flash-worker` once, provided it happens within 3 dispatches or 30 minutes. Disable with `AGY_ARGON_ESCALATE=0`.
 - **Report format.** Subagent prompts lacking the four headers get the REPORT FORMAT block appended (`AGY_ARGON_APPEND_REPORT_FORMAT=0` disables).
 - **Report enforcement.** A subagent's `send_message` to its parent is validated against the contract; an invalid report is denied once so the subagent resends (`AGY_ARGON_ENFORCE_REPORT=0` disables).
+
+**Note on `inheritCustomizations`.** The bundled agents set `inheritCustomizations: false`, so agy does not run plugin hooks inside `flash-lite-scout` or `flash-worker` subagents. Subagent-side report rejection (deny-once on `send_message`) and the scout read-only layer therefore only fire for subagent types that inherit customizations (built-in research/self). For the bundled types, the primary-side message scan (invalid-report ephemeral notice) and scout-failure escalation do the work, and agy itself enforces the agent tool lists (verified: a scout given an edit task could not edit).
 
 The contract is `STATUS`, `FILES_CHANGED`, `VERIFICATION`, `NOTES`; up to 10 bullets under `NOTES`; at most 1,600 characters; a `file://` log URI when `BLOCKED` or `FAILED`.
 

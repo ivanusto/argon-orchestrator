@@ -2036,7 +2036,7 @@ def decide_subagent(subagent: Dict[str, Any]) -> Decision:
 
 
 def _decide_by_rules(subagent: Dict[str, Any]) -> Tuple[Decision, str, bool, str]:
-    """Keyword rules. Returns (decision, role+prompt text, scout_typed, worker type name).
+    """Keyword rules. Returns (decision, prompt text, scout_typed, worker type name).
 
     Precedence (first match wins):
       1. flash-worker type                      -> flash, except a plain read-only lookup (short, no edit, run,
@@ -2078,11 +2078,12 @@ def _decide_by_rules(subagent: Dict[str, Any]) -> Tuple[Decision, str, bool, str
         prefix = f"{prefix_part}:"
         bare_type = bare_type.strip().lower()
 
-    role = str(_get(subagent, "Role", "role", default="")).strip()
     prompt = strip_report_format(str(_get(subagent, "Prompt", "prompt", default="")).strip())
     workspace = str(_get(subagent, "Workspace", "workspace", default="inherit")).strip().lower()
     requested = str(_get(subagent, "Model", "model", default="")).strip().lower()
-    text = f"{role}\n{prompt}"
+    # agy Role is a short label ("Add Scout", "Fix Investigator"); its verbs are not instructions,
+    # so only the Prompt feeds the keyword rules (verified on agy 1.4.6, 2026-10-23).
+    text = prompt
     scout_typed = bare_type == SCOUT_TYPE
     worker_name = f"{prefix}{WORKER_TYPE}" if prefix else WORKER_TYPE
 

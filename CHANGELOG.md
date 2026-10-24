@@ -9,6 +9,7 @@ Antigravity (agy)-only release.
 - GPT-4 / o-series / DeepSeek / Grok and generic Gemini Pro / Ultra are no longer accepted as primary models, including via `AGY_ARGON_PRIMARY_MODEL`.
 
 ### Added
+- agy 1.4.6 sends one flat `invoke_subagent` call per subagent (`Prompt`, `Role`, `TypeName`, optional `Model`); both the flat form and the `Subagents` list form are handled.
 - Code split into `scripts/argon_hook/` (`common`, `models`, `routing`, `judge`, `report`, `state`, `guards`, `tools`, `handlers`); entry point stays `scripts/enforce-orchestrator.py`.
 - Routing engine ported verbatim from mitosis-orchestrator 2.3.0: `Decision` with confidence, `scout-unproven` rule (scout needs positive read-only evidence), worker-lookup downgrade, Chinese rules, optional judge (`AGY_ARGON_JUDGE_URL`, fallback `MITOSIS_JUDGE_URL`).
 - `tests/routing_cases.jsonl` (855) and `routing_holdout` v1 to v8 (40 each); `tests/test_routing_eval.py` thresholds: accuracy >= 0.95, cost errors <= 0.05, zero worker tasks to the scout. `scripts/routing-parity.py <mitosis_repo>` proves 0 differences.
@@ -24,8 +25,11 @@ Antigravity (agy)-only release.
 ### Changed
 - README, README.zh-TW, `rules/AGENTS.md` and the `/orchestrate` skill rewritten for agy only; agent files no longer imply an Argon-only primary.
 - The four-header report contract is unchanged.
+- Routing keyword rules read the `Prompt` only; `Role` is a label and no longer feeds them (a lookup scout with Role "Add Scout" was wrongly upgraded to `flash-worker`). Tests added.
+- Documented that the bundled agents keep `inheritCustomizations: false`, so subagent-side report rejection and the scout read-only layer only fire for types that inherit customizations; primary-side message scan and scout-failure escalation cover the bundled types.
 
 ### Verified
+- agy 1.4.6 (2026-10-23): agy does not run plugin hooks inside subagents with `inheritCustomizations: false`, and enforces the agent tool lists itself (a scout given an edit task could not edit). Routing parity with mitosis stays at 0 differences (parity cases carry no role).
 - agy 1.4.6 (2026-10-23): hook `{}` is a deny; `{"decision":"allow"}` means no objection and agy still shows its own permission prompt for commands and file writes. The plugin keeps returning explicit allow when it has no opinion and never bypasses agy prompts; `AGY_ARGON_AUTO_ALLOW=1` is the only path that grants `permissionOverrides` (in-workspace only).
 
 ## 1.4.0 — 2026-10-19

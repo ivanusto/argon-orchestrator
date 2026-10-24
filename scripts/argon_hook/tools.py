@@ -17,21 +17,22 @@ from .routing import MUTATION_RE, decide_subagent
 from .state import load_state, save_state, sync_subagents
 
 
-def _handle_invoke_subagent(payload: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
-    key = "Subagents" if "Subagents" in args else ("subagents" if "subagents" in args else None)
-    if key is None or not isinstance(args.get(key), list):
-        return {"decision": "allow"}
-    if not args[key]:
-        return {"decision": "deny", "reason": "Subagents list cannot be empty."}
+_SPELLINGS = (("Prompt", "prompt"), ("TypeName", "typeName"), ("Model", "model"))
 
-    updated: List[Any] = copy.deepcopy(args[key])
+
+def _process_subagent_items(payload: Dict[str, Any], updated: List[Any]):
+    """Shared pipeline for one invoke_subagent call. Mutates `updated` (deep copies).
+
+    Returns (deny_reason, changes). Used by both the Subagents-list form and the flat
+    agy 1.4.6 form (one call per subagent, args itself is the item).
+    """
     changes: List[str] = []
     spawns: List[Dict[str, Any]] = []
 
     for idx, item in enumerate(updated):
         if isinstance(item, dict) and not str(_get(item, "Prompt", "prompt", default="")).strip():
             label = _get(item, "Role", "role", default=None) or str(_get(item, "TypeName", "typeName", default="")).strip() or f"subagent[{idx}]"
-            return {"decision": "deny", "reason": f"Subagent '{label}' has an empty Prompt."}
+            return f"Subagent '{label}' has an empty Prompt.", changes
 
     # Read newly delivered reports first so a scout failure can arm the escalation
     # that this very call consumes. State-free calls (no messages) are unaffected.
@@ -51,8 +52,6 @@ def _handle_invoke_subagent(payload: Dict[str, Any], args: Dict[str, Any]) -> Di
         current_type = str(_get(item, "TypeName", "typeName", default="")).strip()
         label = _get(item, "Role", "role", default=None) or current_type or f"subagent[{idx}]"
         prompt = str(_get(item, "Prompt", "prompt", default="")).strip()
-        if not prompt:
-            return {"decision": "deny", "reason": f"Subagent '{label}' has an empty Prompt."}
 
         decision = decision_for[id(item)]
         target_model, type_override, reason = decision.tier, decision.type_override, decision.reason
@@ -83,7 +82,41 @@ def _handle_invoke_subagent(payload: Dict[str, Any], args: Dict[str, Any]) -> Di
 
     state.setdefault("pending_spawns", []).extend(spawns)
     save_state(payload, state)
+    return None, changes
 
+
+def _handle_invoke_subagent(payload: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
+    key = "Subagents" if "Subagents" in args else ("subagents" if "subagents" in args else None)
+    if key is None or not isinstance(args.get(key), list):
+        flat = any(k in args for k in ("Prompt", "prompt", "TypeName", "typeName"))
+        if key is not None or not flat:
+            return {"decision": "allow"}
+        # agy 1.4.6: one flat call per subagent; args itself is the single item.
+        item = copy.deepcopy(args)
+        deny, changes = _process_subagent_items(payload, [item])
+        if deny:
+            return {"decision": "deny", "reason": deny}
+        if not changes:
+            return {"decision": "allow"}
+        overwrite: Dict[str, Any] = {}
+        for canon, lower in _SPELLINGS:
+            if canon in item and item[canon] != args.get(canon):
+                # Keep the caller's spelling, except Model which is always "Model".
+                out_key = lower if (lower in args and canon != "Model") else canon
+                overwrite[out_key] = item[canon]
+        return {
+            "decision": "allow",
+            "reason": "Argon Orchestrator pinned subagent model(s): " + "; ".join(changes),
+            "overwrite": overwrite,
+        }
+
+    if not args[key]:
+        return {"decision": "deny", "reason": "Subagents list cannot be empty."}
+
+    updated: List[Any] = copy.deepcopy(args[key])
+    deny, changes = _process_subagent_items(payload, updated)
+    if deny:
+        return {"decision": "deny", "reason": deny}
     if not changes:
         return {"decision": "allow"}
     return {

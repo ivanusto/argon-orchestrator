@@ -18,7 +18,7 @@ Execute complex tasks using a 4-phase hierarchical orchestration loop with a fro
 
 When context must be gathered across the workspace before planning:
 1. Identify independent lookups (file discovery, symbol search, config inspection, git/log status).
-2. Fan out concurrent **`flash_lite`** subagents in a single `invoke_subagent` call:
+2. Fan out concurrent **`flash_lite`** subagents: issue the `invoke_subagent` calls for independent subagents in the same turn, then end the turn:
    - Prefer `TypeName: "flash-lite-scout"` (or `TypeName: "research"`) with `"Model": "flash_lite"`.
    - Keep each prompt narrowly scoped and end it with the four-header bounded REPORT FORMAT from `rules/AGENTS.md`.
    - Scouts are read-only and have no web tools; anything that needs `search_web` or an edit goes to Phase 3.

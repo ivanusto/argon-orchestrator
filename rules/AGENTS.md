@@ -7,6 +7,9 @@ You are operating under the **Argon Orchestrator** policy:
 > [!IMPORTANT]
 > Never pass `Model: "inherit"` or `Model: "pro"` to `invoke_subagent`, and never call `agent(...)` inside a `run_workflow` script without `model="flash"` or `model="flash_lite"`. The plugin's hooks rewrite or deny violations, but a prompt that is routed correctly the first time saves a whole subagent turn.
 
+> [!NOTE]
+> Routing reads the Prompt, not the Role: state edits and lookups in the Prompt, because the Role is only a label and does not affect routing.
+
 ---
 
 ## 1. Context Routing Matrix
@@ -42,7 +45,7 @@ Moderate-complexity analysis or scoped execution:
 
 1. **Set `Model` explicitly** on every entry in `Subagents`: `"flash_lite"` or `"flash"`.
 2. **Prefer the bundled types**: `flash-lite-scout` for lookups, `flash-worker` for everything that researches across files, runs tests or edits code. If you use `research` or `self`, still set `Model` per the matrix.
-3. **Fan out in one call**: launch independent subagents together in a single `invoke_subagent`. End your turn right after `invoke_subagent` or `send_message`; do not poll with `manage_subagents`.
+3. **Fan out in one turn**: issue the `invoke_subagent` calls for independent subagents in the same turn, then end the turn. End your turn right after `invoke_subagent` or `send_message`; do not poll with `manage_subagents`.
 4. **`send_message` follow-ups**: never send code-editing or multi-step (more than 3 numbered steps) instructions to a `flash_lite` scout. The hook denies them. Invoke a `flash-worker` instead.
 5. **Branch cleanup**: after a `Workspace: "branch"` worker reports, merge or discard its changes and call `manage_subagents` with `Action: "kill"`. The Stop hook will remind you once if any branch worker is still alive when you try to finish.
 6. **No nested spawning**: `define_subagent` calls that set `enable_subagent_tools: true` are rewritten to `false`.

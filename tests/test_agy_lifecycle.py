@@ -275,6 +275,86 @@ class TestScoutReadOnly(AgyBase):
         self.assertEqual(res["decision"], "allow")
 
 
+class TestFlatInvokeSubagent(AgyBase):
+    """agy 1.4.6: one flat invoke_subagent call per subagent (no Subagents list)."""
+
+    def flat(self, prompt, type_name="flash-lite-scout", role="Mul Scout"):
+        return self.tool(self.primary(), "invoke_subagent",
+                         {"Prompt": prompt, "Role": role, "TypeName": type_name})
+
+    def test_scout_lookup_stays_flash_lite_with_model(self):
+        res = eo.handle_pre_tool_use(self.flat("Find where foo is defined."))
+        self.assertEqual(res["decision"], "allow")
+        self.assertEqual(res["overwrite"]["Model"], "flash_lite")
+        self.assertNotIn("TypeName", res["overwrite"])
+
+    def test_scout_edit_task_becomes_flash_worker(self):
+        res = eo.handle_pre_tool_use(self.flat("Add a function sub(a, b) to src/calc.py."))
+        self.assertEqual(res["overwrite"]["Model"], "flash")
+        self.assertEqual(res["overwrite"]["TypeName"], "flash-worker")
+
+    def test_role_label_does_not_upgrade_lookup(self):
+        res = eo.handle_pre_tool_use(self.flat("Find where foo is defined.", role="Add Scout"))
+        self.assertEqual(res["overwrite"]["Model"], "flash_lite")
+        self.assertNotIn("TypeName", res["overwrite"])
+
+    def test_role_lookup_with_edit_prompt_upgrades(self):
+        res = eo.handle_pre_tool_use(self.flat("Add a function sub(a, b) to src/calc.py.", role="Lookup"))
+        self.assertEqual(res["overwrite"]["Model"], "flash")
+        self.assertEqual(res["overwrite"]["TypeName"], "flash-worker")
+
+    def test_decide_subagent_ignores_role(self):
+        d = eo.decide_subagent({"TypeName": "flash-lite-scout", "Role": "Add Scout",
+                                "Prompt": "Find where foo is defined."})
+        self.assertEqual(d.tier, "flash_lite")
+        d = eo.decide_subagent({"TypeName": "flash-lite-scout", "Role": "Lookup",
+                                "Prompt": "Add a function sub(a, b) to src/calc.py."})
+        self.assertEqual(d.tier, "flash")
+
+    def test_report_format_appended_to_prompt(self):
+        res = eo.handle_pre_tool_use(self.flat("Find where foo is defined."))
+        self.assertTrue(res["overwrite"]["Prompt"].startswith("Find where foo is defined."))
+        self.assertIn("STATUS:", res["overwrite"]["Prompt"])
+        self.assertIn("NOTES:", res["overwrite"]["Prompt"])
+
+    def test_armed_escalation_upgrades_next_flat_call_once(self):
+        self.register(SCOUT, "flash-lite-scout", role="Probe Scout")
+        eo.save_state(self.primary(), {"seen_messages": []})
+        self.deliver(SCOUT, FAILED)
+        res = eo.handle_pre_tool_use(self.flat("Find where foo is defined."))
+        self.assertEqual((res["overwrite"]["Model"], res["overwrite"]["TypeName"]), ("flash", "flash-worker"))
+        self.assertIn("Probe Scout", res["reason"])
+        self.assertNotIn("escalation", self.state(PARENT))
+        res2 = eo.handle_pre_tool_use(self.flat("Find where bar is defined."))
+        self.assertEqual(res2["overwrite"]["Model"], "flash_lite")
+
+    def test_each_flat_call_counts_as_one_escalation_call(self):
+        self.register(SCOUT, "flash-lite-scout", role="Probe Scout")
+        eo.save_state(self.primary(), {"seen_messages": []})
+        self.deliver(SCOUT, FAILED)
+        eo.handle_pre_invocation(self.primary())
+        heavy = "Implement the feature and edit config.py then run the tests across files."
+        for left in (2, 1):
+            eo.handle_pre_tool_use(self.flat(heavy, "flash-worker"))
+            self.assertEqual(self.state(PARENT)["escalation"]["calls_left"], left)
+        eo.handle_pre_tool_use(self.flat(heavy, "flash-worker"))
+        self.assertNotIn("escalation", self.state(PARENT))
+
+    def test_empty_prompt_denied(self):
+        res = eo.handle_pre_tool_use(self.flat("   "))
+        self.assertEqual(res["decision"], "deny")
+        self.assertIn("empty Prompt", res["reason"])
+        self.assertIn("Mul Scout", res["reason"])
+
+    def test_pending_spawns_recorded(self):
+        eo.handle_pre_tool_use(self.flat("Find where foo is defined."))
+        eo.handle_pre_tool_use(self.flat("Add a function sub(a, b) to src/calc.py.", role="Sub Adder"))
+        spawns = self.state(PARENT)["pending_spawns"]
+        self.assertEqual([(s["role"], s["type"], s["model"]) for s in spawns],
+                         [("Mul Scout", "flash-lite-scout", "flash_lite"),
+                          ("Sub Adder", "flash-worker", "flash")])
+
+
 class TestMessageScanAndEscalation(AgyBase):
     def setUp(self):
         super().setUp()
