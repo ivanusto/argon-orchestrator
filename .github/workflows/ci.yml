@@ -35,4 +35,4 @@ jobs:
       - name: ruff (correctness rules from pyproject.toml)
         run: ruff check --output-format github .
       - name: Hook scripts stay Python 3.8 compatible
-        run: vermin --no-tips --violations -t=3.8 scripts
+        run: vermin --no-tips --violations -t=3.8- scripts

@@ -11,7 +11,7 @@
 ```bash
 python3 -m unittest discover -s tests
 ruff check .
-vermin -t=3.8 --no-tips scripts
+vermin -t=3.8- --no-tips --violations scripts
 agy plugin validate . --strict
 ```
 
