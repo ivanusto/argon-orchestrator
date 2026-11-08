@@ -7,3 +7,6 @@ __pycache__/
 .env
 .pytest_cache/
 .ruff_cache/
+
+# Claude Code per-user permissions (may contain secrets)
+.claude/settings.local.json
