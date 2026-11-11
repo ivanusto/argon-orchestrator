@@ -106,7 +106,7 @@ def _handle_invoke_subagent(payload: Dict[str, Any], args: Dict[str, Any]) -> Di
                 overwrite[out_key] = item[canon]
         return {
             "decision": "allow",
-            "reason": "Argon Orchestrator pinned subagent model(s): " + "; ".join(changes),
+            "reason": "Just agy Orchestrator pinned subagent model(s): " + "; ".join(changes),
             "overwrite": overwrite,
         }
 
@@ -121,7 +121,7 @@ def _handle_invoke_subagent(payload: Dict[str, Any], args: Dict[str, Any]) -> Di
         return {"decision": "allow"}
     return {
         "decision": "allow",
-        "reason": "Argon Orchestrator pinned subagent model(s): " + "; ".join(changes),
+        "reason": "Just agy Orchestrator pinned subagent model(s): " + "; ".join(changes),
         "overwrite": {key: updated},
     }
 
@@ -216,7 +216,7 @@ def _handle_define_subagent(args: Dict[str, Any]) -> Dict[str, Any]:
     if args.get("enable_subagent_tools") is True:
         return {
             "decision": "allow",
-            "reason": "Argon Orchestrator: subagents may not spawn subagents (enable_subagent_tools forced to false).",
+            "reason": "Just agy Orchestrator: subagents may not spawn subagents (enable_subagent_tools forced to false).",
             "overwrite": {"enable_subagent_tools": False},
         }
     return {"decision": "allow"}

@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .common import SCOUT_TYPE, WORKER_TYPE, Decision, _get_env
+from .common import SCOUT_TYPE, WORKER_TYPE, Decision, _env
 from .report import validate_subagent_report
 from .state import sync_subagents
 
@@ -38,11 +38,11 @@ REPORT_FORMAT_HELP = (
 
 
 def enforce_report_enabled() -> bool:
-    return _get_env("AGY_ARGON_ENFORCE_REPORT", default="1") != "0"
+    return _env("ENFORCE_REPORT", default="1") != "0"
 
 
 def escalation_enabled() -> bool:
-    return _get_env("AGY_ARGON_ESCALATE", default="1") != "0"
+    return _env("ESCALATE", default="1") != "0"
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ def detect_subagent(payload: Dict[str, Any], state: Optional[Dict[str, Any]] = N
 # ---------------------------------------------------------------------------
 
 def gemini_config_dir() -> Path:
-    override = os.environ.get("AGY_ARGON_GEMINI_CONFIG_DIR", "").strip()
+    override = _env("GEMINI_CONFIG_DIR").strip()
     return Path(os.path.expanduser(override or "~/.gemini/config"))
 
 
@@ -129,7 +129,7 @@ def mitosis_active() -> bool:
 COEXISTENCE_WARNING = (
     "WARNING: the mitosis-orchestrator plugin is also installed and enabled. Both plugins rewrite "
     "the same subagents (model pinning, REPORT FORMAT, routing), so run "
-    "`agy plugin disable mitosis-orchestrator` or disable argon-orchestrator."
+    "`agy plugin disable mitosis-orchestrator` or disable just-agy-orchestrator."
 )
 
 
@@ -153,7 +153,7 @@ def check_subagent_report(
         return None
     state["report_denied"] = True
     return (
-        "[Argon Orchestrator] Your report to the parent breaks the required format: "
+        "[Just agy Orchestrator] Your report to the parent breaks the required format: "
         f"{problem} {REPORT_FORMAT_HELP}"
     )
 

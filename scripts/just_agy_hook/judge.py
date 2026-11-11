@@ -1,19 +1,19 @@
 """Optional judge for low-confidence routing decisions (Python 3.8+, stdlib only).
 
-routing.py loads this module only when AGY_ARGON_JUDGE_URL (or MITOSIS_JUDGE_URL) is set.
+routing.py loads this module only when JUST_AGY_JUDGE_URL (or legacy AGY_ARGON_JUDGE_URL / MITOSIS_JUDGE_URL) is set.
 The endpoint speaks the Jev request format, so TypeSafe Jev, a self-hosted
 Jev-compatible gateway and Ollaya all work:
 
   POST {"model": ..., "state": <prompt>, "questions": {"tier": {"type": "choice", ...}}}
 
-Environment (each AGY_ARGON_JUDGE_* name falls back to the MITOSIS_JUDGE_* one):
-  AGY_ARGON_JUDGE_URL             endpoint; unset means no judge
-  AGY_ARGON_JUDGE_THRESHOLD       rule confidence below which the judge is asked (read by routing.py, default 0.9)
-  AGY_ARGON_JUDGE_KEY             bearer token (optional for local gateways)
-  AGY_ARGON_JUDGE_MODEL           default "jev-latest"
-  AGY_ARGON_JUDGE_TIMEOUT         seconds, default 1.5
-  AGY_ARGON_JUDGE_MIN_CONFIDENCE  below this the judge counts as unsure, default 0.7
-  AGY_ARGON_JUDGE_ALLOW_HTTP_KEY  1 lets the key travel over plain http to non-LAN hosts
+Environment (JUST_AGY_JUDGE_* first, then the legacy AGY_ARGON_JUDGE_* name, then MITOSIS_JUDGE_*):
+  JUST_AGY_JUDGE_URL             endpoint; unset means no judge
+  JUST_AGY_JUDGE_THRESHOLD       rule confidence below which the judge is asked (read by routing.py, default 0.9)
+  JUST_AGY_JUDGE_KEY             bearer token (optional for local gateways)
+  JUST_AGY_JUDGE_MODEL           default "jev-latest"
+  JUST_AGY_JUDGE_TIMEOUT         seconds, default 1.5
+  JUST_AGY_JUDGE_MIN_CONFIDENCE  below this the judge counts as unsure, default 0.7
+  JUST_AGY_JUDGE_ALLOW_HTTP_KEY  1 lets the key travel over plain http to non-LAN hosts
 
 Any error, timeout or unsure answer returns None and routing falls back to flash.
 The prompt leaves the machine, so it is cut to MAX_STATE_CHARS and obvious
@@ -27,7 +27,7 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, Optional, Tuple
 
-from .common import _get_env
+from .common import _env as _env_core
 
 MAX_STATE_CHARS = 2000
 DEFAULT_MODEL = "jev-latest"
@@ -101,8 +101,8 @@ def parse_response(body: Any) -> Optional[Tuple[str, float]]:
 
 
 def _env(name: str) -> str:
-    """AGY_ARGON_JUDGE_<name>, falling back to MITOSIS_JUDGE_<name>."""
-    return _get_env("AGY_ARGON_JUDGE_" + name, "MITOSIS_JUDGE_" + name)
+    """JUST_AGY_JUDGE_<name>, then AGY_ARGON_JUDGE_<name>, then MITOSIS_JUDGE_<name>."""
+    return _env_core("JUDGE_" + name, extra_legacy=("MITOSIS_JUDGE_" + name,))
 
 
 def _float_env(name: str, default: float) -> float:
@@ -115,7 +115,7 @@ def _float_env(name: str, default: float) -> float:
 def _key_may_travel(parsed: urllib.parse.ParseResult) -> bool:
     """Send the bearer key over https, or over plain http only inside the LAN.
 
-    AGY_ARGON_JUDGE_ALLOW_HTTP_KEY=1 lifts the restriction for other http hosts.
+    JUST_AGY_JUDGE_ALLOW_HTTP_KEY=1 lifts the restriction for other http hosts.
     """
     if parsed.scheme == "https" or _env("ALLOW_HTTP_KEY") == "1":
         return True

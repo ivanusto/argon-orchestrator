@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .common import CONVERSATION_ID_RE, Decision, SCOUT_TYPE, STATE_FILENAME, _get_env
+from .common import CONVERSATION_ID_RE, Decision, SCOUT_TYPE, STATE_FILENAME, _env
 
 
 def _empty_state() -> Dict[str, Any]:
@@ -29,7 +29,7 @@ def _state_file(payload: Dict[str, Any]) -> Optional[Path]:
         base = Path(artifact_dir)
     else:
         cid = str(payload.get("conversationId") or "default")
-        base = Path(tempfile.gettempdir()) / "argon-orchestrator" / cid
+        base = Path(tempfile.gettempdir()) / "just-agy-orchestrator" / cid
     try:
         base.mkdir(parents=True, exist_ok=True)
     except OSError:
@@ -37,7 +37,7 @@ def _state_file(payload: Dict[str, Any]) -> Optional[Path]:
     return base / STATE_FILENAME
 
 
-LOCK_FILENAME = ".argon_orchestrator_state.lock"
+LOCK_FILENAME = ".just_agy_orchestrator_state.lock"
 
 
 try:  # POSIX
@@ -60,7 +60,7 @@ _HELD_LOCKS: Dict[str, int] = {}
 
 def _lock_timeout() -> float:
     try:
-        return max(0.0, float(_get_env("AGY_ARGON_LOCK_TIMEOUT", default="2")))
+        return max(0.0, float(_env("LOCK_TIMEOUT", default="2")))
     except ValueError:
         return 2.0
 

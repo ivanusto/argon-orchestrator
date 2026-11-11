@@ -18,7 +18,7 @@ agy plugin validate . --strict
 ## Code layout
 
 - `scripts/enforce-orchestrator.py`: hook entry point (modes `session-start`, `pre-invocation`, `pre-tool-use`, `post-tool-use`, `stop`).
-- `scripts/argon_hook/`: `common`, `models`, `routing`, `judge`, `report`, `state`, `guards`, `tools`, `handlers`.
+- `scripts/just_agy_hook/`: `common`, `models`, `routing`, `judge`, `report`, `state`, `guards`, `tools`, `handlers`.
 - `agents/`, `rules/AGENTS.md`, `skills/orchestrate/SKILL.md`: the policy the model reads.
 
 ## Routing changes
@@ -32,7 +32,7 @@ The routing engine is ported verbatim from mitosis-orchestrator 2.3.0. Keep it i
 
 ## Permission behaviour
 
-Verified live on agy 1.4.6 (2026-10-23): a hook answer of `{}` denies the call, and `{"decision":"allow"}` means "no objection" while agy still shows its own permission prompt for commands and file writes. Hooks must therefore return an explicit allow when they have no opinion, and must never try to bypass agy prompts. Only `AGY_ARGON_AUTO_ALLOW=1` grants permission overrides, and only inside the workspace.
+Verified live on agy 1.4.6 (2026-10-23): a hook answer of `{}` denies the call, and `{"decision":"allow"}` means "no objection" while agy still shows its own permission prompt for commands and file writes. Hooks must therefore return an explicit allow when they have no opinion, and must never try to bypass agy prompts. Only `JUST_AGY_AUTO_ALLOW=1` grants permission overrides, and only inside the workspace.
 
 ## Commit style
 

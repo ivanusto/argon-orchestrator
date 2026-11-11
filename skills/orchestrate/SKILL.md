@@ -1,16 +1,16 @@
 ---
 name: orchestrate
 description: >-
-  Structured 4-phase orchestration workflow that keeps a frontier primary agent (Gemini 4 Argon Medium / High, Claude Opus 5.5 or Claude Sonnet 5.5)
+  Structured 4-phase orchestration workflow that keeps a frontier primary agent (Gemini 4 Argon or Carbon Medium / High (Carbon: agy 1.5.5+, ADC sign-in only; default stays Argon), Claude Opus 5.5 or Claude Sonnet 5.5)
   as architect/coordinator and dispatches subagents pinned to flash_lite (for fast reconnaissance,
   searches, log checks, and single-file inspection) or flash (for multi-file analysis, test runs,
   and scoped code edits). Activate when the user invokes /orchestrate or requests multi-agent
   task decomposition.
 ---
 
-# Argon Orchestrator Workflow (`/orchestrate`)
+# Just agy Orchestrator Workflow (`/orchestrate`)
 
-Execute complex tasks using a 4-phase hierarchical orchestration loop with a frontier model (**Gemini 4 Argon `Medium` / `High`**, **Claude Opus 5.5** or **Claude Sonnet 5.5**) as the primary agent and context-pinned **`flash_lite`** / **`flash`** subagents.
+Execute complex tasks using a 4-phase hierarchical orchestration loop with a frontier model (**Gemini 4 Argon `Medium` / `High`**, **Gemini 4 Carbon `Medium` / `High`** (agy 1.5.5+, ADC sign-in only; default stays Argon), **Claude Opus 5.5** or **Claude Sonnet 5.5**) as the primary agent and context-pinned **`flash_lite`** / **`flash`** subagents.
 
 ---
 
@@ -21,6 +21,7 @@ When context must be gathered across the workspace before planning:
 2. Fan out concurrent **`flash_lite`** subagents: issue the `invoke_subagent` calls for independent subagents in the same turn, then end the turn:
    - Prefer `TypeName: "flash-lite-scout"` (or `TypeName: "research"`) with `"Model": "flash_lite"`.
    - Keep each prompt narrowly scoped and end it with the four-header bounded REPORT FORMAT from `rules/AGENTS.md`.
+   - On agy 1.5+ a scout has only `read_file`: give it exact file paths and let it only read them; searches, directory listings and git checks go to a `flash-worker`.
    - Scouts are read-only and have no web tools; anything that needs `search_web` or an edit goes to Phase 3.
    - If a scout reports `FAILED` or `BLOCKED`, the hook escalates the next scout dispatch to `flash-worker` once (within 3 dispatches or 30 minutes).
    - Prompts missing the four report headers get the REPORT FORMAT block appended, and a subagent's own report to you is validated (invalid ones are denied once so it resends).

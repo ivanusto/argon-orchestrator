@@ -2,8 +2,8 @@
 # runtime dependencies. Hook scripts run on Python 3.8+; the test suite needs
 # 3.11+ (tomllib).
 [project]
-name = "argon-orchestrator"
-version = "2.0.0"
+name = "just-agy-orchestrator"
+version = "3.0.0"
 description = "Antigravity (agy)-only orchestration hooks: a frontier primary model routes subagents to flash or flash_lite"
 requires-python = ">=3.8"
 license = "MIT"

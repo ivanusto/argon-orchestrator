@@ -1,10 +1,10 @@
-# Argon Orchestrator (`argon-orchestrator`)
+# Just agy Orchestrator (`just-agy-orchestrator`)
 
 [繁體中文說明 (README.zh-TW.md)](./README.zh-TW.md)
 
 An Antigravity (`agy`) only plugin. It keeps a frontier model as the primary orchestrator and routes every subagent to `flash` or `flash_lite` with a confidence-scored rule engine, guards the risky tool calls, and enforces a bounded four-header subagent report.
 
-Supported primary models (as offered by agy 1.4.6): **Gemini 4 Argon (Medium / High)**, **Claude Opus 5.5**, **Claude Sonnet 5.5**. Argon Low, Gemini 3.8 Flash and GPT-OSS 120B are warned about as non-frontier.
+Supported primary models (as offered by agy 1.4.6 and later): **Gemini 4 Argon (Medium / High)**, **Gemini 4 Carbon (Medium / High)** (agy 1.5.5+, ADC sign-in only; the default stays Argon), **Claude Opus 5.5**, **Claude Sonnet 5.5**. Argon Low, Carbon Low, Gemini 3.8 Flash and GPT-OSS 120B are warned about as non-frontier.
 
 ---
 
@@ -12,7 +12,7 @@ Supported primary models (as offered by agy 1.4.6): **Gemini 4 Argon (Medium / H
 
 | Tier | Model | Role |
 | :--- | :--- | :--- |
-| **Primary orchestrator** | Gemini 4 Argon (Medium / High), Claude Opus 5.5, Claude Sonnet 5.5 | Architecture, planning, cross-cutting refactors, security review, final synthesis. |
+| **Primary orchestrator** | Gemini 4 Argon or Carbon (Medium / High), Claude Opus 5.5, Claude Sonnet 5.5 | Architecture, planning, cross-cutting refactors, security review, final synthesis. |
 | **Tier 1 (`flash-worker`)** | `flash` | Multi-file research, web and documentation work, writing and running tests, scoped edits and debugging. |
 | **Tier 2 (`flash-lite-scout`)** | `flash_lite` | Read-only lookups: files, symbols, grep/glob, git and log checks, single-file inspection. |
 
@@ -21,7 +21,7 @@ Supported primary models (as offered by agy 1.4.6): **Gemini 4 Argon (Medium / H
 ## Components
 
 - **[`rules/AGENTS.md`](./rules/AGENTS.md)**: always-on policy: routing matrix, invocation rules, the four-header report contract, branch cleanup.
-- **[`hooks.json`](./hooks.json) and [`scripts/enforce-orchestrator.py`](./scripts/enforce-orchestrator.py)** (Python 3.8+, standard library only). The logic lives in `scripts/argon_hook/` (`common`, `models`, `routing`, `judge`, `report`, `state`, `guards`, `tools`, `handlers`).
+- **[`hooks.json`](./hooks.json) and [`scripts/enforce-orchestrator.py`](./scripts/enforce-orchestrator.py)** (Python 3.8+, standard library only). The logic lives in `scripts/just_agy_hook/` (`common`, `models`, `routing`, `judge`, `report`, `state`, `guards`, `tools`, `handlers`).
 - **[`agents/`](./agents/)**: `flash-lite-scout` (`flash_lite`, read-only) and `flash-worker` (`flash`, edits only inside the prompt's file allowlist).
 - **[`skills/orchestrate/SKILL.md`](./skills/orchestrate/SKILL.md)**: the `/orchestrate` four-phase workflow (scout recon, primary plan, worker execution, primary verification).
 
@@ -29,7 +29,7 @@ Supported primary models (as offered by agy 1.4.6): **Gemini 4 Argon (Medium / H
 
 | Hook | What it does |
 | :--- | :--- |
-| `SessionStart` | Checks the primary model in `~/.gemini/antigravity-cli/settings.json` and warns if it is not on the list above. Warns when `mitosis-orchestrator` is also enabled. Rewrites settings only with `AGY_ARGON_PIN_SETTINGS=1`. |
+| `SessionStart` | Checks the primary model in `~/.gemini/antigravity-cli/settings.json` and warns if it is not on the list above. Warns when `mitosis-orchestrator` is also enabled. Rewrites settings only with `JUST_AGY_PIN_SETTINGS=1`. |
 | `PreInvocation` | Re-checks the live model each turn (catches UI model switches) and resets per-turn tracking. |
 | `PreToolUse` `invoke_subagent` | Routes every subagent to `flash` or `flash_lite`, appends the REPORT FORMAT block to prompts missing the four headers, applies scout escalation, and denies when the circuit breaker is tripped. agy 1.4.6 sends one flat `invoke_subagent` call per subagent; both forms are handled. |
 | `PreToolUse` `send_message` | Denies code-change or multi-step follow-ups to a `flash_lite` recipient. Validates a subagent's own report to its parent and denies an invalid one once so it resends. |
@@ -51,9 +51,11 @@ The agy `Role` is only a label (for example "Add Scout") and does not affect rou
 
 ### Escalation and report enforcement
 
-- **Escalation.** If a scout reports `FAILED` or `BLOCKED`, the next scout dispatch is escalated to `flash-worker` once, provided it happens within 3 dispatches or 30 minutes. Disable with `AGY_ARGON_ESCALATE=0`.
-- **Report format.** Subagent prompts lacking the four headers get the REPORT FORMAT block appended (`AGY_ARGON_APPEND_REPORT_FORMAT=0` disables).
-- **Report enforcement.** A subagent's `send_message` to its parent is validated against the contract; an invalid report is denied once so the subagent resends (`AGY_ARGON_ENFORCE_REPORT=0` disables).
+- **Escalation.** If a scout reports `FAILED` or `BLOCKED`, the next scout dispatch is escalated to `flash-worker` once, provided it happens within 3 dispatches or 30 minutes. Disable with `JUST_AGY_ESCALATE=0`.
+- **Report format.** Subagent prompts lacking the four headers get the REPORT FORMAT block appended (`JUST_AGY_APPEND_REPORT_FORMAT=0` disables).
+- **Report enforcement.** A subagent's `send_message` to its parent is validated against the contract; an invalid report is denied once so the subagent resends (`JUST_AGY_ENFORCE_REPORT=0` disables).
+
+**Note on the agy 1.5 toolset.** Verified on agy 1.5.5: `find_by_name`, `grep_search` and `list_dir` are retired, so a scout has only `read_file`, `send_message` and `manage_task`. Give scouts exact file paths; searches, listings, `git` and log checks, test runs, web research and edits go to `flash-worker`. The agent tool lists keep the old names (`view_file`, `replace_file_content`, `write_to_file`), which agy 1.5 resolves as aliases; do not list an old name next to its new name, because the agent then fails to build.
 
 **Note on `inheritCustomizations`.** The bundled agents set `inheritCustomizations: false`, so agy does not run plugin hooks inside `flash-lite-scout` or `flash-worker` subagents. Subagent-side report rejection (deny-once on `send_message`) and the scout read-only layer therefore only fire for subagent types that inherit customizations (built-in research/self). For the bundled types, the primary-side message scan (invalid-report ephemeral notice) and scout-failure escalation do the work, and agy itself enforces the agent tool lists (verified: a scout given an edit task could not edit).
 
@@ -68,7 +70,7 @@ Verified live on agy 1.4.6 (2026-10-23):
 - A hook answer of `{}` is a **deny**.
 - `{"decision":"allow"}` means "no objection"; agy still shows its own permission prompt for commands and file writes.
 - The plugin therefore returns an explicit allow when it has no opinion and never bypasses agy prompts.
-- `AGY_ARGON_AUTO_ALLOW=1` is the only path that grants `permissionOverrides`, and only inside the workspace. Outside paths, privilege escalation, root deletes, force pushes and shell-piped downloads are answered `ask`.
+- `JUST_AGY_AUTO_ALLOW=1` is the only path that grants `permissionOverrides`, and only inside the workspace. Outside paths, privilege escalation, root deletes, force pushes and shell-piped downloads are answered `ask`.
 
 In headless `agy -p` mode agy soft-denies anything that needs a prompt regardless of hooks.
 
@@ -76,47 +78,61 @@ In headless `agy -p` mode agy soft-denies anything that needs a prompt regardles
 
 ## Environment variables
 
+The settings use the `JUST_AGY_*` prefix. The old `AGY_ARGON_*` names (and `AGY_ALLOW_NON_ARGON_PRIMARY`) still work; when both are set, the `JUST_AGY_*` value wins.
 
 | Variable | Effect |
 | :--- | :--- |
-| `AGY_ARGON_PIN_SETTINGS=1` | Rewrite `settings.json` to the primary model at session start. |
-| `AGY_ARGON_PRIMARY_MODEL` | Model used when pinning (default `Gemini 4 Argon (High)`). |
-| `AGY_ALLOW_NON_ARGON_PRIMARY=1` | Silence primary-model warnings. |
-| `AGY_ARGON_AUTO_ALLOW=1` | Grant `permissionOverrides` for in-workspace tools. |
-| `AGY_ARGON_MAX_DIRECT_EDITS=<int>` | Distinct workspace files the primary may edit per turn (default 3). |
-| `AGY_ARGON_ALLOW_DIRECT_LOGS=1` | Allow direct reads of `.log` and transcript files. |
-| `AGY_ARGON_ALLOW_DIRECT_FASTPATH=1` | Disable the direct-edit cap and edit-then-test block. |
-| `AGY_ARGON_CIRCUIT_BREAKER=0` | Disable the two-failure circuit breaker. |
-| `AGY_ARGON_DEBUG=1` | Append one JSON line per hook call to `argon_orchestrator_debug.log`. |
-| `AGY_ARGON_APPEND_REPORT_FORMAT=0` | Do not append the REPORT FORMAT block. |
-| `AGY_ARGON_ENFORCE_REPORT=0` | Do not validate subagent reports. |
-| `AGY_ARGON_ESCALATE=0` | Disable scout-to-worker escalation. |
-| `AGY_ARGON_WORKER_DOWNGRADE=0` | Disable the worker-lookup downgrade. |
-| `AGY_ARGON_JUDGE_URL` | Enable the optional judge (falls back to `MITOSIS_JUDGE_URL`). |
-| `AGY_ARGON_JUDGE_KEY`, `_MODEL`, `_TIMEOUT`, `_MIN_CONFIDENCE`, `_THRESHOLD` | Judge credentials, model, timeout and confidence settings. |
-| `AGY_ARGON_JUDGE_ALLOW_HTTP_KEY=1` | Send the judge key over plain http (off by default). |
-| `AGY_ARGON_LOCK_TIMEOUT=<sec>` | State lock timeout, fails open (default 2). |
+| `JUST_AGY_PIN_SETTINGS=1` | Rewrite `settings.json` to the primary model at session start. |
+| `JUST_AGY_PRIMARY_MODEL` | Model used when pinning (default `Gemini 4 Argon (High)`). |
+| `JUST_AGY_ALLOW_NON_PRIMARY=1` | Silence primary-model warnings. |
+| `JUST_AGY_AUTO_ALLOW=1` | Grant `permissionOverrides` for in-workspace tools. |
+| `JUST_AGY_MAX_DIRECT_EDITS=<int>` | Distinct workspace files the primary may edit per turn (default 3). |
+| `JUST_AGY_ALLOW_DIRECT_LOGS=1` | Allow direct reads of `.log` and transcript files. |
+| `JUST_AGY_ALLOW_DIRECT_FASTPATH=1` | Disable the direct-edit cap and edit-then-test block. |
+| `JUST_AGY_CIRCUIT_BREAKER=0` | Disable the two-failure circuit breaker. |
+| `JUST_AGY_DEBUG=1` | Append one JSON line per hook call to `just_agy_orchestrator_debug.log`. |
+| `JUST_AGY_APPEND_REPORT_FORMAT=0` | Do not append the REPORT FORMAT block. |
+| `JUST_AGY_ENFORCE_REPORT=0` | Do not validate subagent reports. |
+| `JUST_AGY_ESCALATE=0` | Disable scout-to-worker escalation. |
+| `JUST_AGY_WORKER_DOWNGRADE=0` | Disable the worker-lookup downgrade. |
+| `JUST_AGY_JUDGE_URL` | Enable the optional judge (falls back to `AGY_ARGON_JUDGE_URL`, then `MITOSIS_JUDGE_URL`). |
+| `JUST_AGY_JUDGE_KEY`, `_MODEL`, `_TIMEOUT`, `_MIN_CONFIDENCE`, `_THRESHOLD` | Judge credentials, model, timeout and confidence settings. |
+| `JUST_AGY_JUDGE_ALLOW_HTTP_KEY=1` | Send the judge key over plain http (off by default). |
+| `JUST_AGY_LOCK_TIMEOUT=<sec>` | State lock timeout, fails open (default 2). |
 | `AGY_ANTIGRAVITY_SETTINGS` | Settings path override (for tests). |
-| `AGY_ARGON_GEMINI_CONFIG_DIR` | Override of `~/.gemini/config`, used by the mitosis coexistence check (tests). |
+| `JUST_AGY_GEMINI_CONFIG_DIR` | Override of `~/.gemini/config`, used by the mitosis coexistence check (tests). |
 
 ---
 
 ## Installation
 
 ```bash
-git clone https://github.com/ivanusto/argon-orchestrator.git ~/.gemini/config/plugins/argon-orchestrator
+git clone https://github.com/ivanusto/just-agy-orchestrator.git ~/.gemini/config/plugins/just-agy-orchestrator
 # or, from any checkout:
 agy plugin install <dir>
 agy plugin validate . --strict
 ```
 
-Restart `agy` afterwards. Toggle with `agy plugin enable argon-orchestrator` or `agy plugin disable argon-orchestrator`.
+Restart `agy` afterwards. Toggle with `agy plugin enable just-agy-orchestrator` or `agy plugin disable just-agy-orchestrator`.
+
+---
+
+## Migrating from argon-orchestrator
+
+This plugin was called `argon-orchestrator` up to 2.0.0. To migrate:
+
+```bash
+agy plugin uninstall argon-orchestrator
+git clone https://github.com/ivanusto/just-agy-orchestrator.git ~/.gemini/config/plugins/just-agy-orchestrator
+```
+
+Restart `agy` afterwards. The old `AGY_ARGON_*` variables keep working, so no environment change is required. Like its predecessor, it still cannot be enabled together with `mitosis-orchestrator` (same skill and agent names).
 
 ---
 
 ## Relationship with mitosis-orchestrator
 
-[mitosis-orchestrator](https://github.com/ivanusto/mitosis-orchestrator) is the successor that supports three platforms. Argon Orchestrator is agy only and lighter. Both use the same skill and agent names, so **enable only one**: `SessionStart` warns when both are enabled. To switch to Argon: `agy plugin disable mitosis-orchestrator`.
+[mitosis-orchestrator](https://github.com/ivanusto/mitosis-orchestrator) is the successor that supports three platforms. Just agy Orchestrator is agy only and lighter. Both use the same skill and agent names, so **enable only one**: `SessionStart` warns when both are enabled. To switch to Just agy Orchestrator: `agy plugin disable mitosis-orchestrator`.
 
 ---
 

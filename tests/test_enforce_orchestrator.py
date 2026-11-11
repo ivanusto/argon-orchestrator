@@ -540,8 +540,11 @@ class TestContextHygieneAndFastPath(HookBase):
         eo.handle_pre_tool_use(self.tool("write_to_file", {"TargetFile": str(self.ws / "a.py")}))
         state = eo.load_state(self.payload)
         self.assertTrue(len(state.get("turn_edited_files", [])) > 0)
-        eo.handle_pre_invocation(self.payload)
-        state_after = eo.load_state(self.payload)
+        eo.handle_pre_invocation(self.payload)  # invocationNum 1: same user turn, kept
+        self.assertTrue(len(eo.load_state(self.payload).get("turn_edited_files", [])) > 0)
+        new_turn = dict(self.payload, invocationNum=0)
+        eo.handle_pre_invocation(new_turn)
+        state_after = eo.load_state(new_turn)
         self.assertEqual(state_after.get("turn_edited_files", []), [])
         self.assertEqual(state_after.get("consecutive_failures", 0), 0)
 
