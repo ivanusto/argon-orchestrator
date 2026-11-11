@@ -104,11 +104,14 @@ class TestPrimaryModelList(unittest.TestCase):
     def test_frontier_by_name_and_id(self):
         for name in ("Gemini 4 Argon (Medium)", "Gemini 4 Argon (High)", "gemini-4-argon-medium",
                      "gemini-4-argon-high", "Claude Opus 5.5 (High)", "claude-opus-5-5-low",
-                     "Claude Sonnet 5.5 (Medium)", "claude-sonnet-5-5-medium", "Claude 3 Opus"):
+                     "Claude Sonnet 5.5 (Medium)", "claude-sonnet-5-5-medium", "Claude 3 Opus",
+                     "Gemini 4 Carbon (Medium)", "Gemini 4 Carbon (High)", "gemini-4-carbon-medium",
+                     "gemini-4-carbon-high"):
             self.assertTrue(eo.is_argon_tier(name), name)
 
     def test_not_frontier(self):
-        for name in ("Gemini 4 Argon (Low)", "gemini-4-argon-low", "gemini-3.8-flash-high",
+        for name in ("Gemini 4 Argon (Low)", "gemini-4-argon-low", "Gemini 4 Carbon (Low)",
+                     "gemini-4-carbon-low", "gemini-3.8-flash-high",
                      "GPT-OSS 120B (Medium)", "gpt-oss-120b-medium", "gpt-5", "o3", "deepseek-v4",
                      "grok-3", "gemini-3.1-pro", "gemini-ultra", "claude-3-5-haiku", "", "auto"):
             self.assertFalse(eo.is_argon_tier(name), name)
@@ -127,6 +130,19 @@ class TestPrimaryModelList(unittest.TestCase):
         os.environ["AGY_ARGON_PRIMARY_MODEL"] = "Claude Sonnet 5.5 (Medium)"
         path.write_text(json.dumps({"model": "gemini-3.8-flash-high"}), encoding="utf-8")
         self.assertEqual(eo.check_primary_model_settings(), ("pinned", "Claude Sonnet 5.5 (Medium)"))
+
+    def test_carbon_is_a_pin_target(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "settings.json"
+        path.write_text(json.dumps({"model": "gemini-3.8-flash-high"}), encoding="utf-8")
+        env = dict(os.environ)
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(env)))
+        os.environ.update({"AGY_ANTIGRAVITY_SETTINGS": str(path), "JUST_AGY_PIN_SETTINGS": "1",
+                           "JUST_AGY_PRIMARY_MODEL": "Gemini 4 Carbon (High)"})
+        self.assertEqual(eo.check_primary_model_settings(), ("pinned", "Gemini 4 Carbon (High)"))
+        self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["model"], "Gemini 4 Carbon (High)")
+        self.assertEqual(eo.DEFAULT_PRIMARY_MODEL, "Gemini 4 Argon (High)")
 
     def test_allow_non_argon_still_silences(self):
         tmp = tempfile.TemporaryDirectory()
@@ -147,8 +163,12 @@ class TestPreInvocationWarnings(AgyBase):
         p = dict(self.primary(), modelName="gpt-oss-120b-medium")
         res = eo.handle_pre_invocation(p)
         msg = res["injectSteps"][0]["ephemeralMessage"]
-        self.assertIn("Gemini 4 Argon (Medium or High)", msg)
+        self.assertIn("Gemini 4 Argon or Carbon (Medium or High)", msg)
         self.assertIn("Claude Opus/Sonnet", msg)
+
+    def test_no_warning_for_carbon_id(self):
+        p = dict(self.primary(), modelName="gemini-4-carbon-high")
+        self.assertEqual(eo.handle_pre_invocation(p), {})
 
     def test_no_warning_for_frontier_primary(self):
         self.assertEqual(eo.handle_pre_invocation(self.primary()), {})
@@ -516,6 +536,26 @@ class TestPrimaryOnlyGuards(AgyBase):
         out = [eo.handle_pre_tool_use(self.tool(base, "write_to_file", {"TargetFile": "%s/f%d.py" % (self.ws, i)}))["decision"]
                for i in range(5)]
         self.assertEqual(out[-1], "deny")
+
+    def test_agy15_path_arg_budget_counts_per_user_turn(self):
+        # agy 1.5: write_file/edit_file carry `Path`; PreInvocation fires on every model call.
+        out = []
+        for n in range(4):
+            base = self.payload(PARENT, "gemini-4-argon-high", invocationNum=n)
+            eo.handle_pre_invocation(base)
+            out.append(eo.handle_pre_tool_use(self.tool(base, "write_file", {"Path": "%s/g%d.py" % (self.ws, n)}))["decision"])
+        self.assertEqual(out, ["allow", "allow", "allow", "deny"])
+        base = self.payload(PARENT, "gemini-4-argon-high", invocationNum=0)
+        eo.handle_pre_invocation(base)  # new user turn resets the budget
+        res = eo.handle_pre_tool_use(self.tool(base, "edit_file", {"Path": "%s/h.py" % self.ws}))
+        self.assertEqual(res["decision"], "allow")
+
+    def test_fastpath_off_flag_covers_path_arg(self):
+        os.environ["JUST_AGY_ALLOW_DIRECT_FASTPATH"] = "1"
+        for n in range(5):
+            base = self.payload(PARENT, "gemini-4-argon-high", invocationNum=n)
+            res = eo.handle_pre_tool_use(self.tool(base, "write_file", {"Path": "%s/k%d.py" % (self.ws, n)}))
+            self.assertEqual(res["decision"], "allow")
 
     def test_subagent_stop_has_no_branch_reminder(self):
         self.register(WORKER, "flash-worker")

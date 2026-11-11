@@ -1,5 +1,26 @@
 # Changelog
 
+## 3.0.0 - 2026-11-11
+
+### Breaking: renamed to just-agy-orchestrator
+- Plugin name is now `just-agy-orchestrator` (display name "Just agy Orchestrator"); it was `argon-orchestrator`. User-visible hook messages read `[Just agy Orchestrator]`.
+- `hooks.json` top-level key is now `just-agy-orchestrator`.
+- Package renamed from `scripts/argon_hook/` to `scripts/just_agy_hook/`. State, lock and debug files are renamed too (`just_agy_orchestrator_state.json`, `.just_agy_orchestrator_state.lock`, `just_agy_orchestrator_debug.log`); old files are not read.
+- Environment prefix is now `JUST_AGY_*` (`AGY_ARGON_<X>` becomes `JUST_AGY_<X>`; `AGY_ALLOW_NON_ARGON_PRIMARY` and `AGY_ARGON_ALLOW_NON_PRIMARY` become `JUST_AGY_ALLOW_NON_PRIMARY`). The legacy names still work as a fallback, and `JUST_AGY_*` wins when both are set. Judge settings fall back `JUST_AGY_JUDGE_*`, `AGY_ARGON_JUDGE_*`, `MITOSIS_JUDGE_*`.
+- `is_frontier_tier` is the primary name; `is_argon_tier` stays as an alias.
+- Migration: `agy plugin uninstall argon-orchestrator`, then install `just-agy-orchestrator` (https://github.com/ivanusto/just-agy-orchestrator). Environment variables need no change. It still cannot be enabled together with `mitosis-orchestrator` (same skill and agent names).
+
+### Fixed
+- Gemini 4 Carbon (agy 1.5.5, ADC sign-in only; ids `gemini-4-carbon-low|medium|high`) is a frontier primary on the same rule as Argon: Medium and High accepted, Low warned about, display and id forms both recognised. `Gemini 4 Carbon (High)` and `(Medium)` are valid `JUST_AGY_PRIMARY_MODEL` pin targets. The default stays `Gemini 4 Argon (High)`.
+- agy 1.5 toolset (verified on agy 1.5.5): `find_by_name`, `grep_search` and `list_dir` are retired, so a scout has only `read_file`, `send_message` and `manage_task`. The scout instructions and the session policy notice now say scouts only read paths you name and that searches, git/log checks, test runs, web research and edits go to `flash-worker`. The agent tool lists keep the old names, which agy resolves as aliases of `read_file`, `edit_file` and `write_file`; listing an old name next to its new name fails the agent build.
+- Windows: agy runs hooks via `cmd /c`, where the Store alias `python3.exe` exits 9009 with no output and agy treats a failed PreToolUse hook as a tool error, so every tool call failed. Each hook command now tries `python3`, then `python`, then `py -3`, and ends in `exit 0` (never `echo {}`, which PreToolUse reads as a denial). The hook also reads stdin as UTF-8 bytes and strips a BOM.
+- agy 1.5 edit budget: `write_file` and `edit_file` (arg `Path`) are now counted, and `turn_edited_files` resets only when `invocationNum` is 0 (a new user turn) instead of on every model call. The circuit breaker is unchanged. The budget never counted on agy 1.5 before; it now denies the 4th distinct file per turn (default 3, `JUST_AGY_MAX_DIRECT_EDITS`), and `JUST_AGY_ALLOW_DIRECT_FASTPATH=1` turns it off.
+- Report check: a bare `NOTES:` line followed by `- ` bullets is now accepted, as in mitosis-orchestrator. In a live agy 1.5.5 run two of three scouts wrote their findings that way and were flagged as breaking the report contract.
+
+### Added
+- `tests/test_agy_toolset.py`, `tests/test_hook_launcher.py` (runs the real `hooks.json` commands through `cmd.exe` or `/bin/sh` with a PATH holding selected interpreters, plus a stdin encoding test), a packaging test for the launcher chain, and Carbon and `Path`-budget tests.
+- `hooks-windows` CI job on `windows-latest` running the launcher and packaging tests.
+
 ## 2.0.0 — 2026-10-23
 
 Antigravity (agy)-only release.

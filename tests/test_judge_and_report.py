@@ -14,10 +14,10 @@ spec = importlib.util.spec_from_file_location("enforce_orchestrator_judge", SCRI
 eo = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(eo)
 
-from argon_hook import judge, report, routing  # noqa: E402  (scripts/ is on sys.path after the load above)
+from just_agy_hook import judge, report, routing  # noqa: E402  (scripts/ is on sys.path after the load above)
 
 CID = "6c0f93da-2912-400b-9b41-a46eacc1bfa3"
-ENV_PREFIXES = ("AGY_ARGON_", "MITOSIS_JUDGE_")
+ENV_PREFIXES = ("JUST_AGY_", "AGY_ARGON_", "MITOSIS_JUDGE_")
 # A scout-typed lookup the rules route with confidence below the 0.9 threshold ("scout-type" is 0.95, so use a default-rule prompt).
 LOW_CONFIDENCE_SPEC = {"prompt": "Tell me something about the repository structure and how the pieces fit together " * 3}
 
@@ -142,7 +142,7 @@ class TestJudgeFallback(EnvCase):
 
 class TestRoutingEngine(EnvCase):
     def test_type_prefixes_are_stripped(self):
-        for prefix in ("argon-orchestrator:", "mitosis-orchestrator:"):
+        for prefix in ("just-agy-orchestrator:", "mitosis-orchestrator:"):
             d = routing.decide_subagent({"prompt": "Edit config.py and remove the dead flag.",
                                          "subagent_type": prefix + "flash-lite-scout"})
             self.assertEqual((d.tier, d.type_override), ("flash", prefix + "flash-worker"))
@@ -242,3 +242,18 @@ class TestInvokeSubagentAppend(EnvCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBareNotesHeader(unittest.TestCase):
+    """agy 1.5.5 scouts often write `NOTES:` alone and put the findings in bullets below it."""
+
+    HEAD = "STATUS: COMPLETED\nFILES_CHANGED: NONE\nVERIFICATION: Read calc.py with read_file.\n"
+
+    def test_bare_notes_with_bullets_is_valid(self):
+        self.assertIsNone(report.validate_subagent_report(self.HEAD + "NOTES: \n- add returns a + b\n- subtract is wrong"))
+
+    def test_bare_notes_without_bullets_is_invalid(self):
+        self.assertIsNotNone(report.validate_subagent_report(self.HEAD + "NOTES:"))
+
+    def test_inline_notes_still_valid(self):
+        self.assertIsNone(report.validate_subagent_report(self.HEAD + "NOTES: - add returns a + b"))

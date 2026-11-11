@@ -14,6 +14,7 @@ from .common import (
     TEST_RUNNER_RE,
     _allow,
     _deny,
+    _env,
     _env_flag,
     _get,
     is_primary_agent,
@@ -29,7 +30,7 @@ from .lifecycle import (
     scan_new_messages,
 )
 from .common import SCOUT_TYPE
-from .models import ALLOWED_PRIMARY_TEXT, POLICY_NOTICE, check_primary_model_settings, is_argon_tier
+from .models import ALLOWED_PRIMARY_TEXT, POLICY_NOTICE, check_primary_model_settings, is_frontier_tier
 from .state import _releases_state_locks, _state_file, load_state, save_state, sync_subagents
 from .tools import (
     _handle_define_subagent,
@@ -51,22 +52,22 @@ def handle_session_start(payload: Dict[str, Any]) -> Dict[str, Any]:
     if status == "ok":
         note = f"Primary model is '{model}'."
     elif status == "pinned":
-        note = f"Restored primary model pin to '{model}' in settings.json (AGY_ARGON_PIN_SETTINGS=1)."
+        note = f"Restored primary model pin to '{model}' in settings.json (JUST_AGY_PIN_SETTINGS=1)."
     elif status == "warn":
         note = (
             f"WARNING: settings.json primary model is '{model or 'unset'}', not an allowed primary model. "
             f"Ask the user to switch to {ALLOWED_PRIMARY_TEXT} before orchestrating, "
-            "or set AGY_ALLOW_NON_ARGON_PRIMARY=1 to silence this."
+            "or set JUST_AGY_ALLOW_NON_PRIMARY=1 to silence this."
         )
     elif status == "silenced":
-        note = f"Primary model is '{model}' (non-Argon warnings silenced)."
+        note = f"Primary model is '{model}' (non-frontier warnings silenced)."
     else:
         note = "settings.json not found; the live model is checked on every turn instead."
     if mitosis_active():
         note = f"{note} {COEXISTENCE_WARNING}"
     return {
         "injectSteps": [
-            {"systemMessage": {"systemMessage": f"[Argon Orchestrator Active] {note} {POLICY_NOTICE}"}}
+            {"systemMessage": {"systemMessage": f"[Just agy Orchestrator Active] {note} {POLICY_NOTICE}"}}
         ]
     }
 
@@ -79,7 +80,11 @@ def handle_session_start(payload: Dict[str, Any]) -> Dict[str, Any]:
 def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
     state = load_state(payload)
     is_sub = detect_subagent(payload, state) is not None
-    state["turn_edited_files"] = []
+    # agy fires PreInvocation on every model call; invocationNum returns to 0 on a new user turn.
+    # The edit budget is per user turn. The circuit breaker keeps its 2.0.0 behaviour (reset on every call).
+    inv = payload.get("invocationNum", 0)
+    if isinstance(inv, bool) or not isinstance(inv, int) or inv == 0:
+        state["turn_edited_files"] = []
     state["consecutive_failures"] = 0
     inject: List[Dict[str, Any]] = []
 
@@ -88,21 +93,21 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
         for item in state.pop("invalid_report_senders", []) or []:
             inject.append({
                 "ephemeralMessage": (
-                    f"[Argon Orchestrator] Subagent '{item.get('label')}' broke the report contract "
+                    f"[Just agy Orchestrator] Subagent '{item.get('label')}' broke the report contract "
                     f"({item.get('problem')}). Treat its report as unverified: check the claimed work "
                     "yourself or re-dispatch the task before relying on it."
                 )
             })
 
     model_name = str(payload.get("modelName") or "")
-    if not is_sub and model_name and not is_argon_tier(model_name) and not _env_flag("AGY_ALLOW_NON_ARGON_PRIMARY"):
+    if not is_sub and model_name and not is_frontier_tier(model_name) and not _env_flag("ALLOW_NON_PRIMARY"):
         key = f"{payload.get('conversationId', '')}:{payload.get('invocationNum', 0)}"
         warned: List[str] = state.setdefault("warned_invocations", [])
         if key not in warned:
             warned.append(key)
             inject.append({
                 "ephemeralMessage": (
-                    f"[Argon Orchestrator] The active session model is '{model_name}', which is "
+                    f"[Just agy Orchestrator] The active session model is '{model_name}', which is "
                     f"not an allowed primary model. Tell the user to switch Model Selection to "
                     f"{ALLOWED_PRIMARY_TEXT} before continuing orchestration work."
                 )
@@ -115,11 +120,11 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
 def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
     tool_call = payload.get("toolCall")
     if not isinstance(tool_call, dict):
-        return _allow("Argon Orchestrator: pass-through.")
+        return _allow("Just agy Orchestrator: pass-through.")
     tool_name = str(tool_call.get("name") or "").strip()
     args = tool_call.get("args")
     if not isinstance(args, dict):
-        return _allow("Argon Orchestrator: pass-through.")
+        return _allow("Just agy Orchestrator: pass-through.")
 
     state = load_state(payload)
     had_cache = "self_subagent" in state
@@ -134,7 +139,7 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
         if sub_type.lower() == SCOUT_TYPE and tool_name in SCOUT_BLOCKED_TOOLS:
             save_state(payload, state)
             return _deny(
-                f"[Argon Orchestrator] '{tool_name}' is not allowed for a read-only {SCOUT_TYPE}. "
+                f"[Just agy Orchestrator] '{tool_name}' is not allowed for a read-only {SCOUT_TYPE}. "
                 "Do not change anything: send your report to the parent with STATUS: BLOCKED "
                 "(the work needs a flash-worker) and a file:// .log scratch URI in NOTES."
             )
@@ -147,15 +152,15 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
                 save_state(payload, state)
                 if reason:
                     return _deny(reason)
-                return _allow("Argon Orchestrator: pass-through.")
+                return _allow("Just agy Orchestrator: pass-through.")
 
     # Circuit breaker: if consecutive failures >= 2 and breaker is not disabled ("0"),
     # block retry loops on commands and subagents.
-    if os.environ.get("AGY_ARGON_CIRCUIT_BREAKER") != "0":
+    if _env("CIRCUIT_BREAKER") != "0":
         fails = int(state.get("consecutive_failures") or 0)
         if fails >= 2 and tool_name in ("run_command", "invoke_subagent"):
             return _deny(
-                f"[Argon Orchestrator] Circuit breaker tripped after {fails} consecutive failure(s). "
+                f"[Just agy Orchestrator] Circuit breaker tripped after {fails} consecutive failure(s). "
                 "Stop retrying and report the blocker to the user."
             )
 
@@ -173,7 +178,7 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
     # Primary agent guards (context hygiene and fast-path budget)
     if sub is None and is_primary_agent(payload, state):
         # Context hygiene: block direct reads of raw logs or transcripts by primary agent
-        if not _env_flag("AGY_ARGON_ALLOW_DIRECT_LOGS") and tool_name in READ_TOOLS:
+        if not _env_flag("ALLOW_DIRECT_LOGS") and tool_name in READ_TOOLS:
             target = str(
                 args.get("AbsolutePath")
                 or args.get("TargetFile")
@@ -184,15 +189,17 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
             )
             if target and LOG_OR_TRANSCRIPT_RE.search(target.replace("\\", "/")):
                 return _deny(
-                    f"[Argon Orchestrator] Direct inspection of log/transcript file '{Path(target).name}' "
+                    f"[Just agy Orchestrator] Direct inspection of log/transcript file '{Path(target).name}' "
                     "by the primary agent is blocked for context hygiene. "
                     "Delegate log slicing to `flash-lite-scout` (TypeName='flash-lite-scout')."
                 )
 
         # Fast-path budget: direct workspace file mutations and test-runner loops
-        if not _env_flag("AGY_ARGON_ALLOW_DIRECT_FASTPATH"):
+        if not _env_flag("ALLOW_DIRECT_FASTPATH"):
             if tool_name in MUTATION_TOOLS:
-                target = str(args.get("TargetFile") or args.get("AbsolutePath") or args.get("FilePath") or "")
+                target = str(
+                    args.get("TargetFile") or args.get("AbsolutePath") or args.get("FilePath") or args.get("Path") or ""
+                )
                 artifact_dir = payload.get("artifactDirectoryPath")
                 is_artifact = False
                 if artifact_dir and target:
@@ -206,10 +213,10 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
                     except Exception:
                         norm_target = target
                     edited: List[str] = state.setdefault("turn_edited_files", [])
-                    max_edits = int(os.environ.get("AGY_ARGON_MAX_DIRECT_EDITS") or 3)
+                    max_edits = int(_env("MAX_DIRECT_EDITS") or 3)
                     if norm_target not in edited and len(edited) >= max_edits:
                         return _deny(
-                            f"[Argon Orchestrator] Direct workspace edit limit ({max_edits} files per turn) exceeded "
+                            f"[Just agy Orchestrator] Direct workspace edit limit ({max_edits} files per turn) exceeded "
                             f"when editing '{Path(target).name}'. Delegate multi-file modifications to `flash-worker` "
                             "(TypeName='flash-worker', Model='flash')."
                         )
@@ -222,7 +229,7 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
                 edited = state.get("turn_edited_files", [])
                 if edited and TEST_RUNNER_RE.search(cmd):
                     return _deny(
-                        "[Argon Orchestrator] Direct workspace edit followed by test runner execution detected "
+                        "[Just agy Orchestrator] Direct workspace edit followed by test runner execution detected "
                         f"in the primary agent ('{cmd}'). Delegate code editing and test execution loops "
                         "to `flash-worker` (TypeName='flash-worker', Model='flash')."
                     )
@@ -318,15 +325,15 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "decision": "continue",
         "reason": (
-            f"[Argon Orchestrator] Branch worktrees are still active ({', '.join(active)}). "
+            f"[Just agy Orchestrator] Branch worktrees are still active ({', '.join(active)}). "
             "Merge or discard their changes, then call manage_subagents(Action='kill') before finishing."
         ),
     }
 
 
 def _debug_log(payload: Dict[str, Any], mode: str, result: Dict[str, Any]) -> None:
-    """With AGY_ARGON_DEBUG=1, append one JSON line per hook call to the artifact directory."""
-    if not _env_flag("AGY_ARGON_DEBUG"):
+    """With JUST_AGY_DEBUG=1, append one JSON line per hook call to the artifact directory."""
+    if not _env_flag("DEBUG"):
         return
     path = _state_file(payload)
     if not path:
@@ -344,7 +351,7 @@ def _debug_log(payload: Dict[str, Any], mode: str, result: Dict[str, Any]) -> No
         "result": result,
     }
     try:
-        with open(path.with_name("argon_orchestrator_debug.log"), "a", encoding="utf-8") as fh:
+        with open(path.with_name("just_agy_orchestrator_debug.log"), "a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError:
         pass

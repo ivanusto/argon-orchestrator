@@ -198,26 +198,26 @@ def command_stays_in_workspace(command: str, cwd: str, roots: List[Path]) -> Tup
 
 
 def _handle_workspace_guard(payload: Dict[str, Any], tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-    # Opt-in: the plugin ships with the scope guard off. Set AGY_ARGON_AUTO_ALLOW=1
+    # Opt-in: the plugin ships with the scope guard off. Set JUST_AGY_AUTO_ALLOW=1
     # to let project-scoped file and command tools skip the permission prompt.
     # When unset or for tools without path arguments, return an explicit "allow" pass-through.
-    if not _env_flag("AGY_ARGON_AUTO_ALLOW"):
-        return _allow("Argon Orchestrator: pass-through.")
+    if not _env_flag("AUTO_ALLOW"):
+        return _allow("Just agy Orchestrator: pass-through.")
     roots = allowed_roots(payload)
     if not roots:
-        return _allow("Argon Orchestrator: pass-through.")
+        return _allow("Just agy Orchestrator: pass-through.")
 
     if tool_name == "run_command":
         cwd = str(_get(args, "Cwd", "cwd", default="") or "")
         cmd = str(_get(args, "CommandLine", "commandLine", "command", default="") or "")
         if not cmd:
-            return _allow("Argon Orchestrator: pass-through.")
+            return _allow("Just agy Orchestrator: pass-through.")
         if cwd and not _within_roots(cwd, roots):
-            return _ask("Argon Orchestrator: Cwd is outside the workspace.")
+            return _ask("Just agy Orchestrator: Cwd is outside the workspace.")
         ok, why = command_stays_in_workspace(cmd, cwd, roots)
         if ok:
-            return _allow("Argon Orchestrator: command stays inside the workspace.", [f"command({cmd})"])
-        return _ask(f"Argon Orchestrator: {why}.")
+            return _allow("Just agy Orchestrator: command stays inside the workspace.", [f"command({cmd})"])
+        return _ask(f"Just agy Orchestrator: {why}.")
 
     targets: List[Any] = []
     for key in PATH_ARG_KEYS:
@@ -229,12 +229,12 @@ def _handle_workspace_guard(payload: Dict[str, Any], tool_name: str, args: Dict[
         if isinstance(value, list):
             targets.extend(v for v in value if isinstance(v, str) and v)
     if not targets:
-        return _allow("Argon Orchestrator: pass-through.")
+        return _allow("Just agy Orchestrator: pass-through.")
     outside = [t for t in targets if not _within_roots(t, roots)]
     if outside:
-        return _ask(f"Argon Orchestrator: {outside[0]!r} is outside the workspace.")
+        return _ask(f"Just agy Orchestrator: {outside[0]!r} is outside the workspace.")
     # "allow" alone does not satisfy Antigravity's permission system (headless
     # runs still auto-deny), so grant the matching read_file/write_file rule
     # for exactly these in-workspace paths.
     action = "write_file" if WRITE_TOOL_RE.search(tool_name) else "read_file"
-    return _allow("Argon Orchestrator: path is inside the workspace.", [f"{action}({t})" for t in targets])
+    return _allow("Just agy Orchestrator: path is inside the workspace.", [f"{action}({t})" for t in targets])

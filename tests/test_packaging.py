@@ -27,8 +27,8 @@ class TestVersionsAgree(unittest.TestCase):
         self.assertEqual(len(set(found.values())), 1, found)
 
     def test_names_agree(self):
-        self.assertEqual(json.loads(read("plugin.json"))["name"], "argon-orchestrator")
-        self.assertEqual(tomllib.loads(read("pyproject.toml"))["project"]["name"], "argon-orchestrator")
+        self.assertEqual(json.loads(read("plugin.json"))["name"], "just-agy-orchestrator")
+        self.assertEqual(tomllib.loads(read("pyproject.toml"))["project"]["name"], "just-agy-orchestrator")
 
 
 class TestHooks(unittest.TestCase):
@@ -49,7 +49,17 @@ class TestHooks(unittest.TestCase):
     def test_modes_are_known(self):
         for cmd in self.commands():
             with self.subTest(command=cmd):
-                self.assertIn(cmd.split()[-1], KNOWN_MODES)
+                self.assertIn(cmd.split(" || ")[0].split()[-1], KNOWN_MODES)
+
+    def test_every_command_carries_the_full_launcher_chain(self):
+        # agy runs hooks via `cmd /c` on Windows, where python3 can be a Store alias (exit 9009).
+        for cmd in self.commands():
+            with self.subTest(command=cmd):
+                mode = cmd.split(" || ")[0].split()[-1]
+                script = "./scripts/enforce-orchestrator.py " + mode
+                self.assertEqual(
+                    cmd, " || ".join(["python3 " + script, "python " + script, "py -3 " + script, "exit 0"]))
+                self.assertNotIn("echo", cmd)  # `{}` from PreToolUse is a denial on agy
 
 
 class TestAgents(unittest.TestCase):

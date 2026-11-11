@@ -36,3 +36,14 @@ jobs:
         run: ruff check --output-format github .
       - name: Hook scripts stay Python 3.8 compatible
         run: vermin --no-tips --violations -t=3.8- scripts
+
+  hooks-windows:
+    # agy runs hooks with `cmd /c`; python3 may be a Store alias that exits 9009.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Hook commands through cmd.exe and stdin encoding
+        run: python -m unittest tests.test_hook_launcher tests.test_packaging -v

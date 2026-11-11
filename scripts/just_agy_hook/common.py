@@ -1,19 +1,23 @@
-"""Shared helpers and constants for the Argon hook."""
+"""Shared helpers and constants for the Just agy hook."""
 
 import os
 import re
-from typing import Any, Dict, List, NamedTuple, Optional
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 
 DEFAULT_PRIMARY_MODEL = "Gemini 4 Argon (High)"
 ALLOWED_PRIMARY_MODELS = {
     "Gemini 4 Argon (High)",
     "Gemini 4 Argon (Medium)",
+    "Gemini 4 Carbon (High)",
+    "Gemini 4 Carbon (Medium)",
 }
 ALLOWED_SUBAGENT_MODELS = {"flash", "flash_lite"}
 SCOUT_TYPE = "flash-lite-scout"
 WORKER_TYPE = "flash-worker"
-STATE_FILENAME = "argon_orchestrator_state.json"
+STATE_FILENAME = "just_agy_orchestrator_state.json"
+ENV_PREFIX = "JUST_AGY_"
+LEGACY_ENV_PREFIX = "AGY_ARGON_"
 
 
 NUMBERED_RULE_RE = re.compile(r"(?m)^\s*[0-9]+[.)]\s+")
@@ -42,10 +46,13 @@ LOG_OR_TRANSCRIPT_RE = re.compile(
     re.IGNORECASE,
 )
 READ_TOOLS = {"view_file", "view_file_outline", "view_code_item"}
-MUTATION_TOOLS = {"write_to_file", "replace_file_content", "multi_replace_file_content"}
+MUTATION_TOOLS = {
+    "write_to_file", "replace_file_content", "multi_replace_file_content",
+    "write_file", "edit_file", "create_file",
+}
 
 
-def _allow(reason: str = "Argon Orchestrator: pass-through.", overrides: Optional[List[str]] = None) -> Dict[str, Any]:
+def _allow(reason: str = "Just agy Orchestrator: pass-through.", overrides: Optional[List[str]] = None) -> Dict[str, Any]:
     res: Dict[str, Any] = {"decision": "allow", "reason": reason}
     if overrides:
         res["permissionOverrides"] = overrides
@@ -82,13 +89,24 @@ def _get_env(*names: str, default: str = "") -> str:
     return default
 
 
-def _env_flag(*names: str) -> bool:
-    """True when the first non-empty variable among `names` equals "1"."""
-    for name in names:
-        val = os.environ.get(name)
-        if val is not None and val.strip() != "":
-            return val.strip() == "1"
-    return False
+_LEGACY_ENV_EXTRA = {
+    "ALLOW_NON_PRIMARY": ("AGY_ARGON_ALLOW_NON_PRIMARY", "AGY_ALLOW_NON_ARGON_PRIMARY"),
+}
+
+
+def _env_names(name: str, extra_legacy: Tuple[str, ...] = ()) -> Tuple[str, ...]:
+    return (ENV_PREFIX + name, LEGACY_ENV_PREFIX + name) + _LEGACY_ENV_EXTRA.get(name, ()) + tuple(extra_legacy)
+
+
+def _env(name: str, default: str = "", extra_legacy: Tuple[str, ...] = ()) -> str:
+    """Read the setting JUST_AGY_<name>, then the legacy AGY_ARGON_<name> (and any extra legacy names)."""
+    return _get_env(*_env_names(name, extra_legacy), default=default)
+
+
+def _env_flag(name: str, extra_legacy: Tuple[str, ...] = ()) -> bool:
+    """True when the first non-empty variable for `name` (new prefix first, then legacy) equals "1"."""
+    val = _env(name, extra_legacy=extra_legacy)
+    return val == "1"
 
 
 def _get(d: Dict[str, Any], *keys: str, default: Any = None) -> Any:

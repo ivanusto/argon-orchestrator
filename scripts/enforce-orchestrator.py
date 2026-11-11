@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Argon Orchestrator lifecycle hooks for Antigravity (agy).
+"""Just agy Orchestrator lifecycle hooks for Antigravity (agy).
 
 Zero-dependency (Python 3.8+ standard library only).
 
@@ -15,7 +15,7 @@ pre-invocation
     Checks the live session model (payload.modelName) on every turn. If it is
     not an allowed primary model, injects a one-time ephemeral warning per invocation so the
     primary agent asks the user to switch models. Resets per-turn tracking
-    (turn_edited_files, consecutive_failures).
+    (turn_edited_files, consecutive_failures) when invocationNum returns to 0 (a new user turn).
 
 pre-tool-use
     invoke_subagent   -> context-classifies every subagent into flash / flash_lite
@@ -51,26 +51,29 @@ stop
     asks the primary agent (once per set of live branch workers) to merge/discard and kill them
     before finishing. Never blocks user cancellations, errors, or budget caps.
 
-Environment variables:
-    AGY_ARGON_PIN_SETTINGS=1          opt in to rewriting settings.json at session start
-    AGY_ARGON_PRIMARY_MODEL=<name>    target model when pinning (default: Gemini 4 Argon (High))
-    AGY_ALLOW_NON_ARGON_PRIMARY=1     silence all primary-model warnings
+Environment variables (new JUST_AGY_* names; the old AGY_ARGON_* names still work, and
+JUST_AGY_* wins when both are set):
+    JUST_AGY_PIN_SETTINGS=1           opt in to rewriting settings.json at session start
+    JUST_AGY_PRIMARY_MODEL=<name>     target model when pinning (default: Gemini 4 Argon (High))
+    JUST_AGY_ALLOW_NON_PRIMARY=1      silence all primary-model warnings
+                                      (legacy: AGY_ARGON_ALLOW_NON_PRIMARY, AGY_ALLOW_NON_ARGON_PRIMARY)
     AGY_ANTIGRAVITY_SETTINGS=<path>   override the settings.json location (tests)
-    AGY_ARGON_ENFORCE_REPORT=0        let invalid subagent reports through (default: deny once, then allow)
-    AGY_ARGON_ESCALATE=0              disable scout FAILED/BLOCKED -> flash-worker escalation
-    AGY_ARGON_GEMINI_CONFIG_DIR=<dir> override ~/.gemini/config (mitosis coexistence check; tests)
-    AGY_ARGON_AUTO_ALLOW=1            enable the workspace scope guard (off by default)
-    AGY_ARGON_MAX_DIRECT_EDITS=<int>  max distinct workspace file edits per turn (default: 3)
-    AGY_ARGON_ALLOW_DIRECT_LOGS=1     allow primary agent to read raw logs and transcripts
-    AGY_ARGON_ALLOW_DIRECT_FASTPATH=1 allow primary agent direct edit-test loops and unlimited edits
-    AGY_ARGON_CIRCUIT_BREAKER=0       disable the 2-failure circuit breaker
-    AGY_ARGON_LOCK_TIMEOUT=<sec>      per-session state lock wait, fail open (default: 2)
-    AGY_ARGON_APPEND_REPORT_FORMAT=0  stop appending the REPORT FORMAT block to subagent prompts
-    AGY_ARGON_WORKER_DOWNGRADE=0      keep plain read-only lookups typed flash-worker on flash
-    AGY_ARGON_JUDGE_URL=<url>         optional judge for low-confidence routing (falls back to
-                                      MITOSIS_JUDGE_URL); AGY_ARGON_JUDGE_THRESHOLD (default 0.9)
-    AGY_ARGON_DEBUG=1                 append one JSON line per hook call to
-                                      <artifactDirectoryPath>/argon_orchestrator_debug.log
+    JUST_AGY_ENFORCE_REPORT=0         let invalid subagent reports through (default: deny once, then allow)
+    JUST_AGY_ESCALATE=0               disable scout FAILED/BLOCKED -> flash-worker escalation
+    JUST_AGY_GEMINI_CONFIG_DIR=<dir>  override ~/.gemini/config (mitosis coexistence check; tests)
+    JUST_AGY_AUTO_ALLOW=1             enable the workspace scope guard (off by default)
+    JUST_AGY_MAX_DIRECT_EDITS=<int>   max distinct workspace file edits per turn (default: 3)
+    JUST_AGY_ALLOW_DIRECT_LOGS=1      allow primary agent to read raw logs and transcripts
+    JUST_AGY_ALLOW_DIRECT_FASTPATH=1  allow primary agent direct edit-test loops and unlimited edits
+    JUST_AGY_CIRCUIT_BREAKER=0        disable the 2-failure circuit breaker
+    JUST_AGY_LOCK_TIMEOUT=<sec>       per-session state lock wait, fail open (default: 2)
+    JUST_AGY_APPEND_REPORT_FORMAT=0   stop appending the REPORT FORMAT block to subagent prompts
+    JUST_AGY_WORKER_DOWNGRADE=0       keep plain read-only lookups typed flash-worker on flash
+    JUST_AGY_JUDGE_URL=<url>          optional judge for low-confidence routing (falls back to
+                                      AGY_ARGON_JUDGE_URL, then MITOSIS_JUDGE_URL);
+                                      JUST_AGY_JUDGE_THRESHOLD (default 0.9)
+    JUST_AGY_DEBUG=1                  append one JSON line per hook call to
+                                      <artifactDirectoryPath>/just_agy_orchestrator_debug.log
 """
 
 import copy  # noqa: F401
@@ -86,8 +89,8 @@ _HERE = str(Path(__file__).resolve().parent)
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-from argon_hook import common, guards, handlers, lifecycle, models, report, routing, state, tools  # noqa: F401,E402
-from argon_hook.common import (  # noqa: F401,E402
+from just_agy_hook import common, guards, handlers, lifecycle, models, report, routing, state, tools  # noqa: F401,E402
+from just_agy_hook.common import (  # noqa: F401,E402
     AGENT_CALL_RE,
     ALLOWED_PRIMARY_MODELS,
     ALLOWED_SUBAGENT_MODELS,
@@ -110,7 +113,7 @@ from argon_hook.common import (  # noqa: F401,E402
     _get,
     is_primary_agent,
 )
-from argon_hook.models import (  # noqa: F401,E402
+from just_agy_hook.models import (  # noqa: F401,E402
     FRONTIER_TOKENS,
     POLICY_NOTICE,
     SMALL_TIER_RE,
@@ -121,7 +124,7 @@ from argon_hook.models import (  # noqa: F401,E402
     is_frontier_tier,
     settings_path,
 )
-from argon_hook.routing import (  # noqa: F401,E402
+from just_agy_hook.routing import (  # noqa: F401,E402
     HEAVY_RE,
     LITE_RE,
     MUTATION_RE,
@@ -129,7 +132,7 @@ from argon_hook.routing import (  # noqa: F401,E402
     classify_subagent_tier,
     decide_subagent,
 )
-from argon_hook.report import (  # noqa: F401,E402
+from just_agy_hook.report import (  # noqa: F401,E402
     MAX_REPORT_BULLET_LINES,
     MAX_SUBAGENT_REPORT_CHARS,
     REPORT_BULLET_RE,
@@ -137,7 +140,7 @@ from argon_hook.report import (  # noqa: F401,E402
     REPORT_LOG_URI_RE,
     validate_subagent_report,
 )
-from argon_hook.state import (  # noqa: F401,E402
+from just_agy_hook.state import (  # noqa: F401,E402
     LOCK_FILENAME,
     SUBAGENT_ALIVE_STATE,
     _HELD_LOCKS,
@@ -154,7 +157,7 @@ from argon_hook.state import (  # noqa: F401,E402
     sync_subagents_from_artifacts,
     sync_subagents_from_transcript,
 )
-from argon_hook.guards import (  # noqa: F401,E402
+from just_agy_hook.guards import (  # noqa: F401,E402
     ABS_PATH_TOKEN_RE,
     DOTDOT_TOKEN_RE,
     ESCALATION_RE,
@@ -171,7 +174,7 @@ from argon_hook.guards import (  # noqa: F401,E402
     allowed_roots,
     command_stays_in_workspace,
 )
-from argon_hook.tools import (  # noqa: F401,E402
+from just_agy_hook.tools import (  # noqa: F401,E402
     _agent_call_bodies,
     _handle_define_subagent,
     _handle_invoke_subagent,
@@ -181,7 +184,7 @@ from argon_hook.tools import (  # noqa: F401,E402
     _iter_strings,
     workflow_model_violations,
 )
-from argon_hook.handlers import (  # noqa: F401,E402
+from just_agy_hook.handlers import (  # noqa: F401,E402
     _debug_log,
     _tool_failed,
     handle_post_tool_use,
@@ -203,7 +206,9 @@ HANDLERS = {
 def main() -> None:
     mode = sys.argv[1] if len(sys.argv) > 1 else "pre-tool-use"
     try:
-        raw = sys.stdin.read()
+        # Hook payloads are UTF-8; text-mode stdin uses the Windows locale code page. Decode bytes, drop a BOM.
+        buffer = getattr(sys.stdin, "buffer", None)
+        raw = buffer.read().decode("utf-8-sig", "replace") if buffer is not None else sys.stdin.read()
         payload = json.loads(raw) if raw.strip() else {}
         if not isinstance(payload, dict):
             payload = {}
@@ -215,7 +220,7 @@ def main() -> None:
         result = handler(payload) if handler else {}
     except Exception as exc:  # never break the agent loop because of the guard
         result = {"decision": "allow"} if mode in ("stop", "pre-tool-use") else {}
-        sys.stderr.write(f"[argon-orchestrator] {mode} hook error: {exc!r}\n")
+        sys.stderr.write(f"[just-agy-orchestrator] {mode} hook error: {exc!r}\n")
     finally:
         _release_state_locks()
     _debug_log(payload, mode, result)

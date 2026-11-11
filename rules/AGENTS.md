@@ -1,7 +1,7 @@
-# Argon Orchestrator & Subagent Model Pinning Policy
+# Just agy Orchestrator & Subagent Model Pinning Policy
 
-You are operating under the **Argon Orchestrator** policy:
-- **Primary Agent**: One of the models agy 1.4.6 offers as frontier: **Gemini 4 Argon (`Medium` or `High`)**, **Claude Opus 5.5** or **Claude Sonnet 5.5**. You are the architect, planner and orchestrator. Argon Low, Gemini 3.8 Flash and GPT-OSS 120B are non-frontier and trigger a warning.
+You are operating under the **Just agy Orchestrator** policy:
+- **Primary Agent**: One of the models agy offers as frontier (1.4.6 and later): **Gemini 4 Argon (`Medium` or `High`)**, **Gemini 4 Carbon (`Medium` or `High`; agy 1.5.5+, ADC sign-in only, default stays Argon)**, **Claude Opus 5.5** or **Claude Sonnet 5.5**. You are the architect, planner and orchestrator. Argon Low, Carbon Low, Gemini 3.8 Flash and GPT-OSS 120B are non-frontier and trigger a warning.
 - **Subagents**: Always pinned to **`flash`** or **`flash_lite`** according to the routing matrix below.
 
 > [!IMPORTANT]
@@ -22,7 +22,7 @@ Single-hop, read-only lookups:
 - `git status` / `git log` / log tail checks
 - High-fan-out reconnaissance where latency and cost matter
 
-`flash-lite-scout` has no write tools and no web tools. Prompts that contain mutation verbs (implement, refactor, edit, fix, patch, delete, ...) are automatically upgraded to `flash-worker` by the hook.
+`flash-lite-scout` has no write tools and no web tools. On agy 1.5+ a scout has only `read_file` (no search, listing or shell tool, and agy runs no hooks inside subagents): give it exact paths; searches, listings, `git` checks and `.log` slicing go to `flash-worker`, which uses `run_command` (`rg`, `ls`, `git ...`). Prompts that contain mutation verbs (implement, refactor, edit, fix, patch, delete, ...) are automatically upgraded to `flash-worker` by the hook.
 
 ### B. `flash` via `TypeName: "flash-worker"`
 Moderate-complexity analysis or scoped execution:
@@ -88,9 +88,10 @@ Enforcement (the contract itself is unchanged):
 
 ## 4. Primary-model guard
 
-- At session start the plugin reads `~/.gemini/antigravity-cli/settings.json` and warns if the primary model is not Gemini 4 Argon (Medium / High), Claude Opus 5.5 or Claude Sonnet 5.5. It does **not** rewrite the file unless `AGY_ARGON_PIN_SETTINGS=1` is set.
+- At session start the plugin reads `~/.gemini/antigravity-cli/settings.json` and warns if the primary model is not Gemini 4 Argon or Carbon (Medium / High), Claude Opus 5.5 or Claude Sonnet 5.5. It does **not** rewrite the file unless `JUST_AGY_PIN_SETTINGS=1` is set.
 - On every turn the plugin checks the live session model. If it is not on that list you will receive one warning per invocation; relay it to the user and ask them to switch models before orchestrating.
-- `AGY_ARGON_PRIMARY_MODEL` selects the pin target from the same list.
-- `AGY_ALLOW_NON_ARGON_PRIMARY=1` silences both warnings.
+- The old `AGY_ARGON_*` names (and `AGY_ALLOW_NON_ARGON_PRIMARY`) still work; `JUST_AGY_*` wins when both are set.
+- `JUST_AGY_PRIMARY_MODEL` selects the pin target from the same list.
+- `JUST_AGY_ALLOW_NON_PRIMARY=1` silences both warnings.
 - If `mitosis-orchestrator` is also enabled (same skill and agent names), the session start warns: enable only one (`agy plugin disable mitosis-orchestrator`).
-- Hook permission semantics: the plugin never bypasses agy permission prompts. `AGY_ARGON_AUTO_ALLOW=1` is the only path that grants permission overrides, in-workspace only.
+- Hook permission semantics: the plugin never bypasses agy permission prompts. `JUST_AGY_AUTO_ALLOW=1` is the only path that grants permission overrides, in-workspace only.

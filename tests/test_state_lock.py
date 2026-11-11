@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "enforce-orchestrator.py"
-ENV_PREFIXES = ("AGY_", "MITOSIS_")
+ENV_PREFIXES = ("AGY_", "JUST_AGY_", "MITOSIS_")
 CID = "6c0f93da-2912-400b-9b41-a46eacc1bfa3"
 
 

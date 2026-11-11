@@ -2,13 +2,13 @@
 
 Ported from mitosis-orchestrator v2.3.0 (scripts/mitosis_hook/routing.py). The rule
 layer is kept verbatim so both plugins route identically; only the Decision shape,
-the judge loader and the environment names (AGY_ARGON_*) differ.
+the judge loader and the environment names (JUST_AGY_*, legacy AGY_ARGON_*) differ.
 """
 
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from .common import ALLOWED_SUBAGENT_MODELS, Decision, SCOUT_TYPE, WORKER_TYPE, _get, _get_env
+from .common import ALLOWED_SUBAGENT_MODELS, Decision, SCOUT_TYPE, WORKER_TYPE, _get, _env
 from .guards import SCOUT_GIT_SUBCOMMANDS, scout_command_is_read_only
 from .report import strip_report_format
 from .state import _RECENT_DECISIONS
@@ -1378,7 +1378,7 @@ def _rule_decision(tier: str, type_override: Optional[str], rule: str, reason: s
 
 
 def _load_judge() -> Any:
-    """Import argon_hook.judge lazily, only when a judge is configured."""
+    """Import just_agy_hook.judge lazily, only when a judge is configured."""
     global _JUDGE_MODULE
     if _JUDGE_MODULE is None:
         import importlib
@@ -1387,15 +1387,15 @@ def _load_judge() -> Any:
 
 
 def _judge_url() -> str:
-    return _get_env("AGY_ARGON_JUDGE_URL", "MITOSIS_JUDGE_URL")
+    return _env("JUDGE_URL", extra_legacy=("MITOSIS_JUDGE_URL",))
 
 
 def _apply_judge(decision: Decision, prompt: str, scout_typed: bool, worker_type_name: str) -> Decision:
-    """Hand a low-confidence rule decision to the configured judge (AGY_ARGON_JUDGE_URL)."""
+    """Hand a low-confidence rule decision to the configured judge (JUST_AGY_JUDGE_URL)."""
     if decision.rule not in JUDGEABLE_RULES or not _judge_url():
         return decision
     try:
-        threshold = float(_get_env("AGY_ARGON_JUDGE_THRESHOLD", default="0.9"))
+        threshold = float(_env("JUDGE_THRESHOLD", default="0.9"))
     except ValueError:
         threshold = 0.9
     if decision.confidence >= threshold:
@@ -2041,7 +2041,7 @@ def _decide_by_rules(subagent: Dict[str, Any]) -> Tuple[Decision, str, bool, str
     Precedence (first match wins):
       1. flash-worker type                      -> flash, except a plain read-only lookup (short, no edit, run,
          web, heavy or trailing-action signal, positive lookup evidence): flash_lite with the scout type
-         (worker-lookup; AGY_ARGON_WORKER_DOWNGRADE=0 turns that off; a judge may veto it)
+         (worker-lookup; JUST_AGY_WORKER_DOWNGRADE=0 turns that off; a judge may veto it)
       2. mutation verbs in prompt               -> flash  (scout type is upgraded to worker); includes the Chinese
          disposal construction (把 X 關掉/搬到 Y) and transitive X掉; a verb inside a 要不要/是否 frame or a
          why-question clause is a topic
@@ -2098,7 +2098,7 @@ def _decide_by_rules(subagent: Dict[str, Any]) -> Tuple[Decision, str, bool, str
         find_mutation(text, False) or find_heavy_ex(text, lite is not None, False)[0])
 
     if bare_type == WORKER_TYPE:
-        if _get_env("AGY_ARGON_WORKER_DOWNGRADE", default="1") != "0" and _worker_lookup(
+        if _env("WORKER_DOWNGRADE", default="1") != "0" and _worker_lookup(
                 text, prompt, workspace, requested, lite):
             scout_type = f"{prefix}{SCOUT_TYPE}" if prefix else SCOUT_TYPE
             return done(_rule_decision("flash_lite", scout_type, "worker-lookup",

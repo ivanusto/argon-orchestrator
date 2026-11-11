@@ -3,7 +3,7 @@
 import re
 from typing import Optional
 
-from .common import _get_env
+from .common import _env
 
 
 MAX_SUBAGENT_REPORT_CHARS = 1600
@@ -77,7 +77,7 @@ def append_report_format(prompt: str, tier: str) -> str:
 
 
 def _append_report_format_enabled() -> bool:
-    return _get_env("AGY_ARGON_APPEND_REPORT_FORMAT", default="1") != "0"
+    return _env("APPEND_REPORT_FORMAT", default="1") != "0"
 
 
 def validate_subagent_report(text: str) -> Optional[str]:
@@ -117,6 +117,9 @@ def validate_subagent_report(text: str) -> Optional[str]:
     expected_prefixes = ("STATUS:", "FILES_CHANGED:", "VERIFICATION:", "NOTES:")
     for idx, (pattern, prefix) in enumerate(zip(REPORT_LINE_PATTERNS, expected_prefixes), start=1):
         if not pattern.match(lines[idx - 1]):
+            # `NOTES:` may be bare when bullet lines follow it (same rule as mitosis-orchestrator).
+            if prefix == "NOTES:" and re.match(r"^NOTES:\s*$", lines[idx - 1], re.IGNORECASE) and len(lines) > 4:
+                continue
             return f"Line {idx} must match '{prefix} <value>'."
 
     bullet_lines = lines[4:]
