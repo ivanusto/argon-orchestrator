@@ -7,7 +7,7 @@
 - agy Orchestrator (`gemini-pro-orchestrator` = "Orchestrator (Carbon)", `gemini-pro-orchestrator-argon` = "Orchestrator (Argon)") is a frontier primary. It plans with Carbon/Argon and executes with Hydrogen internally, so the plugin's dispatch stacks on top of it.
 - `Gemini 4 Hydrogen (High)`, `(XHigh)`, `Orchestrator (Carbon)` and `Orchestrator (Argon)` are valid `JUST_AGY_PRIMARY_MODEL` pin targets. The default stays `Gemini 4 Argon (High)`.
 - agy Orchestrator (Carbon) hands execution to an internal executor that hook payloads report as `gemini-flash-worker-agy`; it is accepted and no longer triggers the non-frontier warning.
-- agy 1.5.7 verification: TBD
+- Verified on agy 1.5.7 with headless `/orchestrate` runs (scout read plus worker edit) using `gemini-4-hydrogen-high` and `gemini-pro-orchestrator` as primary, in an isolated home with only this plugin installed: subagents pinned to `flash_lite` / `flash`, reports passed the four-header check, and no primary-model warning was injected (including the executor phase reported as `gemini-flash-worker-agy`). The concrete model behind the `flash` tier is resolved server side and is not visible to the CLI or hooks.
 
 ## 3.0.0 - 2026-11-11
 
