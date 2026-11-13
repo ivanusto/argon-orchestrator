@@ -36,8 +36,8 @@ Perform high-reasoning work directly on the primary agent:
 2. Design the architecture, interfaces, invariants, and step-by-step execution plan.
 3. Partition the implementation and verification into independent work units and classify each unit's tier:
    - **`flash_lite`**: Config/format validation, quick status checks, single-file read verification.
-   - **`flash`**: Multi-file research, test authoring & execution, localized code changes, module debugging.
-   - **Primary agent**: Cross-cutting core refactors, subtle concurrency/security logic, final integration.
+   - **`flash`**: Independent, parallelizable multi-file research, test authoring & execution, localized code changes, module debugging.
+   - **Primary agent**: Cross-cutting core refactors, subtle concurrency/security logic, final integration, and sequential web/docs research and tracing (`search_web`, `read_file`). Do not wait on a single subagent for something a few of your own calls would finish. When the task asks for an output file, write it as soon as you have an evidence-backed answer, then refine; do not open new verification branches before the deliverable exists.
 
 ---
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.3 - 2026-11-13
+
+### Changed
+- Policy notice, skill and rules: web/docs research is no longer listed as always going to `flash`. The primary does sequential web/docs research and tracing itself (`search_web`, `read_file`), delegates only independent parallel work, and writes a requested output file as soon as it has an evidence-backed answer before opening new verification branches.
+- Why: real agy 1.5.7 data from the sibling mitosis plugin, which shares this policy design. Harness task "read vllm-startup.log, find root cause, write answer.md": pure agy with Gemini 4 Hydrogen High passed 3/3 in 302-482 s; with the plugin 3/3 never wrote answer.md and hit the 900 s print timeout. The primary had the root cause within 20-90 s but sent research and source tracing to flash-worker subagents one after another (170-430 s each) and kept adding verification follow-ups.
+
+### Added
+- Turn nudge (primary only): when 300 s or more have passed since the current user request (anchored on `lastUserInput`, not `invocationNum`) and at least one subagent was dispatched during that request (pending or already reported; follow-up `send_message` calls to reported subagents do not reset this), one `ephemeralMessage` asks the primary to write the deliverable now from the evidence it has, mark what is unverified, and not dispatch new research or follow-ups. Once per request. `JUST_AGY_TURN_NUDGE_SECONDS=<sec>` (legacy `AGY_ARGON_TURN_NUDGE_SECONDS`): default 300, `0` disables, invalid uses the default, negative is `0`.
+- Re-run of the same task (agy 1.5.7, Hydrogen High, same harness and 900 s budget, isolated home with only this plugin): mitosis 2.7.5 passed 3/3 in 846, 811 and 503 s with 2 to 4 subagents per run; mitosis 2.7.6 (same policy and nudge as this release) passed 3/3 in 536, 627 and 517 s with no subagents (the primary did its own web research), close to plain agy (302 to 482 s). The other six harness tasks passed once each in 18 to 31 s. With a 15 s threshold this plugin's nudge fired once in a live `/orchestrate` run and the primary still wrote its deliverable.
+
 ## 3.0.2 - 2026-11-13
 
 ### Changed

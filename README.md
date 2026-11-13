@@ -90,6 +90,7 @@ The settings use the `JUST_AGY_*` prefix. The old `AGY_ARGON_*` names (and `AGY_
 | `JUST_AGY_ALLOW_DIRECT_LOGS=1` | Allow direct reads of `.log` and transcript files. |
 | `JUST_AGY_SMALL_LOG_BYTES=<int>` | Size limit for direct primary reads of a log or transcript that is a regular file at an absolute path (default 16384 = 16 KiB; `0` disables the exception). |
 | `JUST_AGY_ALLOW_DIRECT_FASTPATH=1` | Disable the direct-edit cap and edit-then-test block. |
+| `JUST_AGY_TURN_NUDGE_SECONDS=<sec>` | Seconds after a user request before the primary is nudged once to write the deliverable once work has been delegated during that request (default 300; `0` disables; invalid uses the default). |
 | `JUST_AGY_CIRCUIT_BREAKER=0` | Disable the two-failure circuit breaker. |
 | `JUST_AGY_DEBUG=1` | Append one JSON line per hook call to `just_agy_orchestrator_debug.log`. |
 | `JUST_AGY_APPEND_REPORT_FORMAT=0` | Do not append the REPORT FORMAT block. |

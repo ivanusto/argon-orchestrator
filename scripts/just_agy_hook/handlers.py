@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -83,6 +84,70 @@ def handle_session_start(payload: Dict[str, Any]) -> Dict[str, Any]:
 # pre-invocation
 # ---------------------------------------------------------------------------
 
+TURN_NUDGE_DEFAULT_SECONDS = 300
+
+
+def _turn_nudge_seconds() -> float:
+    raw = _env("TURN_NUDGE_SECONDS").strip()
+    if not raw:
+        return float(TURN_NUDGE_DEFAULT_SECONDS)
+    try:
+        value = float(raw)
+    except ValueError:
+        return float(TURN_NUDGE_DEFAULT_SECONDS)
+    if value != value or value in (float("inf"), float("-inf")):
+        return float(TURN_NUDGE_DEFAULT_SECONDS)
+    return max(value, 0.0)
+
+
+def _turn_nudge(payload: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+    """Primary only. After the threshold, once work was delegated during this request, ask for the deliverable once per request.
+
+    The anchor is the last user input, not invocationNum: invocationNum resets to 0 whenever a
+    subagent message wakes the primary.
+    """
+    user_input = str(payload.get("lastUserInput") or "")
+    now = time.time()
+    anchor = state.get("turn_anchor")
+    if not isinstance(anchor, dict) or anchor.get("input") != user_input:
+        anchor = {"input": user_input, "started": now, "nudged": False}
+        state["turn_anchor"] = anchor
+        return {}
+    started = anchor.get("started")
+    if isinstance(started, bool) or not isinstance(started, (int, float)):
+        anchor["started"] = now
+        return {}
+    elapsed = now - started
+    if elapsed < 0:
+        anchor["started"] = now
+        return {}
+    threshold = _turn_nudge_seconds()
+    if threshold <= 0 or elapsed < threshold or anchor.get("nudged"):
+        return {}
+    records = list((state.get("subagents") or {}).values()) + list(state.get("pending_spawns") or [])
+    # "Dispatched during this anchor": the spawn record is stamped with spawned_at when invoke_subagent runs.
+    mine = [
+        r for r in records
+        if isinstance(r, dict)
+        and isinstance(r.get("spawned_at"), (int, float))
+        and not isinstance(r.get("spawned_at"), bool)
+        and r["spawned_at"] >= started
+    ]
+    if not mine:
+        return {}
+    pending = [r for r in mine if not r.get("status")]
+    anchor["nudged"] = True
+    clause = " (%d subagent(s) still pending)" % len(pending) if pending else ""
+    return {
+        "ephemeralMessage": (
+            f"[Just agy Orchestrator] {int(elapsed // 60)} min since this request and you have "
+            f"delegated work{clause}. Write the deliverable now from the evidence you have, mark "
+            "what is unverified, and do not dispatch new research or follow-ups; fold in late "
+            "reports afterwards."
+        )
+    }
+
+
 @_releases_state_locks
 def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
     state = load_state(payload)
@@ -105,6 +170,11 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                     "yourself or re-dispatch the task before relying on it."
                 )
             })
+
+    if not is_sub:
+        nudge = _turn_nudge(payload, state)
+        if nudge:
+            inject.append(nudge)
 
     model_name = str(payload.get("modelName") or "")
     if (

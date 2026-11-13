@@ -1,6 +1,7 @@
 """pre-tool-use handlers for subagent tools."""
 
 import copy
+import time
 from typing import Any, Dict, List
 
 from .common import (
@@ -76,6 +77,7 @@ def _process_subagent_items(payload: Dict[str, Any], updated: List[Any]):
                 "model": target_model,
                 "workspace": workspace,
                 "active_branch": workspace == "branch",
+                "spawned_at": time.time(),
                 **({"escalated": True} if item is escalated_item else {}),
             }
         )

@@ -90,6 +90,7 @@ agy 的 `Role` 僅為標籤（例如「Add Scout」），不影響路由；關�
 | `JUST_AGY_ALLOW_DIRECT_LOGS=1` | 允許直接讀取 `.log` 與逐字稿檔。 |
 | `JUST_AGY_SMALL_LOG_BYTES=<int>` | 主控可直接讀取的日誌或逐字稿大小上限（須為絕對路徑的一般檔案；預設 16384，即 16 KiB；`0` 停用此例外）。 |
 | `JUST_AGY_ALLOW_DIRECT_FASTPATH=1` | 停用直接編輯上限與「編輯後測試」阻擋。 |
+| `JUST_AGY_TURN_NUDGE_SECONDS=<秒>` | 使用者提出請求後，若該請求期間已委派子代理（不論是否已回報），超過此秒數即提醒主控一次先寫出成果（預設 300；`0` 停用；無效值使用預設）。 |
 | `JUST_AGY_CIRCUIT_BREAKER=0` | 停用連續兩次失敗的斷路器。 |
 | `JUST_AGY_DEBUG=1` | 每次 hook 呼叫附加一行 JSON 至 `just_agy_orchestrator_debug.log`。 |
 | `JUST_AGY_APPEND_REPORT_FORMAT=0` | 不附加 REPORT FORMAT 區塊。 |

@@ -548,6 +548,132 @@ class TestCoexistence(AgyBase):
         self.assertEqual(eo.handle_session_start(self.sub_payload()), {})
 
 
+class TestTurnNudge(AgyBase):
+    def setUp(self):
+        super().setUp()
+        os.environ.pop("JUST_AGY_TURN_NUDGE_SECONDS", None)
+        os.environ.pop("AGY_ARGON_TURN_NUDGE_SECONDS", None)
+        self.now = 1000.0
+        self._orig_time = eo.handlers.time.time
+        eo.handlers.time.time = lambda: self.now
+        eo.save_state(self.primary(), {"seen_messages": [], "subagents": {WORKER: {"role": "w", "spawned_at": 1000.0}}})
+
+    def tearDown(self):
+        eo.handlers.time.time = self._orig_time
+        super().tearDown()
+
+    def run_at(self, t, user="do the task", model="gemini-4-argon-high", base=None):
+        self.now = 1000.0 + t
+        p = base or self.payload(PARENT, model, invocationNum=1, lastUserInput=user)
+        return eo.handle_pre_invocation(p)
+
+    def texts(self, res):
+        return [s["ephemeralMessage"] for s in res.get("injectSteps", []) if "ephemeralMessage" in s]
+
+    def test_below_threshold_no_nudge(self):
+        self.run_at(0)
+        self.assertEqual(self.run_at(299), {})
+
+    def test_nudge_once_with_pending_subagent(self):
+        self.run_at(0)
+        out = self.texts(self.run_at(301))
+        self.assertEqual(len(out), 1)
+        self.assertIn("5 min since this request and you have delegated work (1 subagent(s) still pending).", out[0])
+        self.assertIn("do not dispatch new research or follow-ups", out[0])
+        self.assertIn("Write the deliverable now", out[0])
+        self.assertEqual(self.run_at(400), {})
+        self.assertTrue(self.state(PARENT)["turn_anchor"]["nudged"])
+
+    def test_new_user_input_resets(self):
+        self.run_at(0)
+        self.assertEqual(len(self.texts(self.run_at(301))), 1)
+        self.assertEqual(self.run_at(310, user="another task"), {})
+        self.assertEqual(self.run_at(500, user="another task"), {})  # dispatched under the old anchor only
+        st = self.state(PARENT)
+        st["subagents"][WORKER]["spawned_at"] = 1315.0
+        eo.save_state(self.primary(), st)
+        self.assertEqual(len(self.texts(self.run_at(611, user="another task"))), 1)
+
+    def test_invocation_num_reset_does_not_reanchor(self):
+        self.run_at(0)
+        p = self.payload(PARENT, "gemini-4-argon-high", invocationNum=0, lastUserInput="do the task")
+        self.assertEqual(len(self.texts(self.run_at(301, base=p))), 1)
+
+    def test_env_zero_disables_and_invalid_uses_default(self):
+        os.environ["JUST_AGY_TURN_NUDGE_SECONDS"] = "0"
+        self.run_at(0)
+        self.assertEqual(self.run_at(10000), {})
+        os.environ["JUST_AGY_TURN_NUDGE_SECONDS"] = "-5"
+        self.assertEqual(self.run_at(10001), {})
+        os.environ["JUST_AGY_TURN_NUDGE_SECONDS"] = "abc"
+        self.assertEqual(len(self.texts(self.run_at(10002))), 1)
+
+    def test_env_custom_threshold(self):
+        os.environ["JUST_AGY_TURN_NUDGE_SECONDS"] = "60"
+        self.run_at(0)
+        self.assertEqual(len(self.texts(self.run_at(61))), 1)
+
+    def test_all_reported_still_nudges_once(self):
+        st = self.state(PARENT)
+        st["subagents"][WORKER]["status"] = "COMPLETED"
+        eo.save_state(self.primary(), st)
+        self.run_at(0)
+        out = self.texts(self.run_at(900))
+        self.assertEqual(len(out), 1)
+        self.assertIn("you have delegated work. Write the deliverable now", out[0])
+        self.assertNotIn("pending", out[0])
+        self.assertEqual(self.run_at(950), {})
+
+    def test_no_subagent_dispatched_no_nudge(self):
+        eo.save_state(self.primary(), {"seen_messages": []})
+        self.run_at(0)
+        self.assertEqual(self.run_at(900), {})
+
+    def test_subagent_from_previous_anchor_no_nudge(self):
+        self.run_at(0, user="old task")
+        st = self.state(PARENT)
+        st["subagents"][WORKER]["spawned_at"] = 1000.0
+        eo.save_state(self.primary(), st)
+        self.run_at(10, user="new task")  # new anchor starts at 1010
+        self.assertEqual(self.run_at(400, user="new task"), {})
+
+    def test_pending_spawn_counts_as_dispatched(self):
+        eo.save_state(self.primary(), {"seen_messages": [], "pending_spawns": [{"role": "w", "spawned_at": 1005.0}]})
+        self.run_at(0)
+        out = self.texts(self.run_at(301))
+        self.assertIn("(1 subagent(s) still pending)", out[0])
+
+    def test_subagent_payload_no_nudge(self):
+        self.run_at(0)
+        self.register(WORKER, "flash-worker")
+        self.now = 2000.0
+        res = eo.handle_pre_invocation(self.payload(WORKER, "gemini-3.5-flash", invocationNum=1, lastUserInput="do the task"))
+        self.assertEqual(res, {})
+
+    def test_time_backwards_no_nudge_and_reanchors(self):
+        self.run_at(0)
+        self.assertEqual(self.run_at(-50), {})
+        self.assertEqual(self.run_at(200), {})
+        self.assertEqual(len(self.texts(self.run_at(251))), 1)
+
+    def test_composes_with_model_warning(self):
+        self.run_at(0, model="gemini-3.5-flash")
+        p = self.payload(PARENT, "gemini-3.5-flash", invocationNum=2, lastUserInput="do the task")
+        out = self.texts(self.run_at(301, base=p))
+        self.assertEqual(len(out), 2)
+        self.assertTrue(any("delegated work" in m for m in out))
+        self.assertTrue(any("not an allowed primary model" in m for m in out))
+
+
+class TestPolicyText(unittest.TestCase):
+    def test_policy_notice_routing(self):
+        n = eo.POLICY_NOTICE
+        self.assertNotIn("web/docs research and edits go to `flash`", n)
+        self.assertIn("Do sequential web/docs research and tracing yourself (search_web, read_file)", n)
+        self.assertIn("do not wait on a single subagent", n)
+        self.assertIn("write it as soon as you have an evidence-backed answer", n)
+
+
 class TestPrimaryOnlyGuards(AgyBase):
     def test_subagent_not_subject_to_primary_guards(self):
         self.register(WORKER, "flash-worker")

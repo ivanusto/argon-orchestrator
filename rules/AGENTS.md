@@ -27,7 +27,7 @@ Single-hop, read-only lookups:
 ### B. `flash` via `TypeName: "flash-worker"`
 Moderate-complexity analysis or scoped execution:
 - Multi-file exploration, call-graph tracing, root-cause analysis
-- Web and documentation research (`search_web`, `read_url_content`)
+- Independent, parallelizable web and documentation research (`search_web`, `read_url_content`); sequential research and tracing stays on the primary (section C)
 - Writing and running unit, integration or regression tests
 - Scoped code changes, bug fixes, module-level refactors
 - Iterative verification of one component or test suite
@@ -38,6 +38,8 @@ Moderate-complexity analysis or scoped execution:
 - Cross-cutting refactors with subtle invariants, concurrency or security implications
 - Resolving ambiguous requirements with the user (`ask_question`)
 - Synthesizing subagent reports, reviewing diffs, delivering the final answer
+- Sequential web/docs research and tracing (`search_web`, `read_file`): do it yourself; delegate only independent work that can run in parallel, and do not wait on one subagent for something a few of your own calls would finish
+- Writing a requested output file: write it as soon as you have an evidence-backed answer, then refine; open no new verification branches before the deliverable exists
 
 ---
 
