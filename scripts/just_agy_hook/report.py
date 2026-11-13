@@ -9,7 +9,19 @@ from .common import _env
 MAX_SUBAGENT_REPORT_CHARS = 1600
 MAX_REPORT_BULLET_LINES = 10
 REPORT_BULLET_RE = re.compile(r"^[-*]\s+\S+")
+# Markdown links to local files, e.g. [calc.py](file:///home/u/p/calc.py#L1-L2). agy tells agents to cite
+# files this way; the long target is not counted against the limit (only the link text is).
+# A file:// target of at most 512 characters is not counted; a longer target does not match and counts in full,
+# so the link form cannot be used to smuggle a long payload past the limit.
+FILE_LINK_RE = re.compile(r"\[([^\]]*)\]\(\s*file://[^)\s]{0,505}\s*\)", re.IGNORECASE)
 REPORT_LOG_URI_RE = re.compile(r"file://\S+\.log\b", re.IGNORECASE)
+
+
+def report_length(text: str) -> int:
+    """Report length for the 1,600 character limit: file:// markdown links (target <= 512 chars) count as their text only."""
+    collapsed = FILE_LINK_RE.sub(lambda m: m.group(1) or "link", (text or "").strip())
+    return len(collapsed.strip())
+
 REPORT_LINE_PATTERNS = (
     re.compile(r"^STATUS:\s*(?:COMPLETED|BLOCKED|FAILED)\b", re.IGNORECASE),
     re.compile(r"^FILES_CHANGED:\s*\S+"),
@@ -90,7 +102,7 @@ def validate_subagent_report(text: str) -> Optional[str]:
       NOTES: <single sentence summary or up to 10 bullet lines (- or *)>
 
     Constraints:
-      - Total length <= 1600 characters.
+      - Total length <= 1600 characters (file:// link targets in markdown links are not counted).
       - At most 10 bullet lines following NOTES:.
       - If STATUS is BLOCKED or FAILED, NOTES must include a file:// URI to a .log file.
 
@@ -99,9 +111,10 @@ def validate_subagent_report(text: str) -> Optional[str]:
     stripped = (text or "").strip()
     if not stripped:
         return "Subagent report is empty."
-    if len(stripped) > MAX_SUBAGENT_REPORT_CHARS:
+    measured = report_length(stripped)
+    if measured > MAX_SUBAGENT_REPORT_CHARS:
         return (
-            f"Subagent report length ({len(stripped)} chars) exceeds maximum "
+            f"Subagent report length ({measured} chars) exceeds maximum "
             f"{MAX_SUBAGENT_REPORT_CHARS} chars."
         )
     lines = [line.strip() for line in stripped.splitlines() if line.strip()]

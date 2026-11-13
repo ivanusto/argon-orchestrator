@@ -474,6 +474,47 @@ class TestContextHygieneAndFastPath(HookBase):
         res = eo.handle_pre_tool_use(self.tool("view_file", {"AbsolutePath": str(self.ws / "app.log")}))
         self.assertEqual(res["decision"], "allow")
 
+    def _log(self, size_bytes, name="small.log"):
+        path = self.ws / name
+        path.write_bytes(b"x" * size_bytes)
+        return str(path)
+
+    def _read(self, path):
+        return eo.handle_pre_tool_use(self.tool("view_file", {"AbsolutePath": path}))["decision"]
+
+    def test_primary_reading_small_log_allowed(self):
+        lines = "".join(f"line {i}: ok\n" for i in range(25))
+        path = self.ws / "small.log"
+        path.write_text(lines, encoding="utf-8")
+        self.assertEqual(self._read(str(path)), "allow")
+
+    def test_primary_reading_20k_log_denied(self):
+        self.assertEqual(self._read(self._log(20 * 1024)), "deny")
+
+    def test_primary_reading_log_at_limit_allowed(self):
+        self.assertEqual(self._read(self._log(16 * 1024)), "allow")
+        self.assertEqual(self._read(self._log(16 * 1024 + 1, "over.log")), "deny")
+
+    def test_primary_reading_missing_log_denied(self):
+        self.assertEqual(self._read(str(self.ws / "missing.log")), "deny")
+
+    def test_primary_reading_log_directory_denied(self):
+        d = self.ws / "dir.log"
+        d.mkdir()
+        self.assertEqual(self._read(str(d)), "deny")
+
+    def test_small_log_bytes_zero_disables_exception(self):
+        path = self._log(100)
+        os.environ["JUST_AGY_SMALL_LOG_BYTES"] = "0"
+        self.assertEqual(self._read(path), "deny")
+
+    def test_small_log_bytes_override_and_invalid(self):
+        path = self._log(100)
+        os.environ["JUST_AGY_SMALL_LOG_BYTES"] = "50"
+        self.assertEqual(self._read(path), "deny")
+        os.environ["JUST_AGY_SMALL_LOG_BYTES"] = "bogus"
+        self.assertEqual(self._read(path), "allow")
+
     def test_subagent_reading_log_allowed(self):
         self.payload["isSubagent"] = True
         res = eo.handle_pre_tool_use(self.tool("view_file", {"AbsolutePath": str(self.ws / "app.log")}))
@@ -644,6 +685,40 @@ class TestSubagentReportValidation(unittest.TestCase):
         err = eo.validate_subagent_report(text)
         self.assertIsNotNone(err)
         self.assertIn("exceeds maximum 1600 chars", err)
+
+    @staticmethod
+    def _report(notes):
+        return "STATUS: COMPLETED\nFILES_CHANGED: NONE\nVERIFICATION: ok\nNOTES: " + notes
+
+    def test_file_links_not_counted(self):
+        links = " ".join(
+            f"[f{i}.py](file:///home/user/project/some/deep/dir/module_{i}.py#L1-L20)" for i in range(8)
+        )
+        text = self._report(links + " " + "x" * 1000)
+        self.assertGreater(len(text), 1600)  # raw ~1,600+, collapsed ~1,100
+        self.assertLess(eo.report.report_length(text), 1600)
+        self.assertIsNone(eo.validate_subagent_report(text))
+
+    def test_long_report_with_one_link_still_too_long(self):
+        text = self._report("[a.py](file:///home/user/a.py#L1) " + "x" * 2700)
+        err = eo.validate_subagent_report(text)
+        self.assertIsNotNone(err)
+        self.assertIn("exceeds maximum 1600 chars", err)
+
+    def test_http_links_still_counted(self):
+        text = self._report("[doc](http://example.com/" + "a" * 1700 + ")")
+        self.assertIsNotNone(eo.validate_subagent_report(text))
+
+    def test_empty_link_text_becomes_link(self):
+        self.assertEqual(eo.report.report_length("[](file:///x/y.py)"), len("link"))
+
+    def test_overlong_file_link_target_counts_in_full(self):
+        short = "[a](file://" + "x" * 505 + ")"
+        long_ = "[a](file://" + "x" * 506 + ")"
+        self.assertEqual(eo.report.report_length(short), 1)
+        self.assertEqual(eo.report.report_length(long_), len(long_))
+        text = self._report("[a](file:///" + "a" * 1700 + ")")
+        self.assertIsNotNone(eo.validate_subagent_report(text))
 
     def test_blocked_without_log_uri_denied(self):
         text = (

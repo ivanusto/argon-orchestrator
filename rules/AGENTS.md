@@ -75,7 +75,7 @@ NOTES: <summary (and up to 10 `- ` bullets), or file:// log URI if BLOCKED/FAILE
 ```
 
 Scouts omit rules 3 to 5 and always report `FILES_CHANGED: NONE`. Subagent reports must follow the bounded report format:
-- Up to 10 compact bullet lines (`- ` or `* `) under `NOTES:` (total report length capped at $\le 1,600$ chars).
+- Up to 10 compact bullet lines (`- ` or `* `) under `NOTES:` (total report length capped at $\le 1,600$ chars; `file://` link targets in markdown links are not counted).
 - When `STATUS` is `BLOCKED` or `FAILED`, `NOTES:` must include a `file://.../*.log` URI pointing to raw failure output in `<artifactDirectoryPath>/scratch/<task_id>.log`.
 The four-header bounded report keeps subagent output cheap to read back; do not ask subagents for unstructured prose summaries.
 

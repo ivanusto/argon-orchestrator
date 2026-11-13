@@ -35,7 +35,7 @@
 | `PreToolUse` `send_message` | 拒絕對 `flash_lite` 收件者下達修改程式碼或多步驟的後續指令；驗證子代理回報給上層的訊息，無效時拒絕一次使其重送。 |
 | `PreToolUse` `run_workflow` / `define_subagent` | 拒絕未指定 `model="flash"` 或 `"flash_lite"` 的 `agent(...)`；強制 `enable_subagent_tools=false`。 |
 | `PreToolUse` scout 唯讀層 | `flash-lite-scout` 子代理僅能使用唯讀工具與指令。 |
-| `PreToolUse` 衛生與快速路徑 | 阻擋主控直接讀取 `.log` 與 `transcript.jsonl`；限制每回合直接編輯檔案數（預設 3）與「編輯後立即測試」迴圈。 |
+| `PreToolUse` 衛生與快速路徑 | 阻擋主控直接讀取 `.log` 與 `transcript.jsonl`（16 KiB 以內的檔案除外）；限制每回合直接編輯檔案數（預設 3）與「編輯後立即測試」迴圈。 |
 | `PostToolUse` | 配對子代理與其中繼資料，追蹤失敗連續次數供斷路器使用。 |
 | `Stop` | 若仍有存活的 `Workspace:"branch"` 工作者，詢問一次是否合併或捨棄並終止。 |
 
@@ -59,7 +59,7 @@ agy 的 `Role` 僅為標籤（例如「Add Scout」），不影響路由；關�
 
 **關於 `inheritCustomizations`**：內建代理皆設定 `inheritCustomizations: false`，因此 agy 不會在 `flash-lite-scout` 或 `flash-worker` 子代理內執行外掛 hook。子代理端的回報拒絕（對 `send_message` 拒絕一次）與 scout 唯讀層，僅對會繼承自訂設定的子代理類型（內建 research/self）生效。對內建類型而言，由上層端的訊息掃描（無效回報的暫時性通知）與 scout 失敗升級負責把關，且 agy 本身會強制執行代理的工具清單（已驗證：被派予修改任務的 scout 無法修改檔案）。
 
-合約為 `STATUS`、`FILES_CHANGED`、`VERIFICATION`、`NOTES`；`NOTES` 下最多 10 條項目；總長度不超過 1,600 字元；`BLOCKED` 或 `FAILED` 時須附 `file://` 日誌 URI。
+合約為 `STATUS`、`FILES_CHANGED`、`VERIFICATION`、`NOTES`；`NOTES` 下最多 10 條項目；總長度不超過 1,600 字元（`[calc.py](file:///abs/calc.py#L1-L2)` 這類 Markdown 連結的 `file://` 目標不計入，只計連結文字）；`BLOCKED` 或 `FAILED` 時須附 `file://` 日誌 URI。
 
 ---
 
@@ -88,6 +88,7 @@ agy 的 `Role` 僅為標籤（例如「Add Scout」），不影響路由；關�
 | `JUST_AGY_AUTO_ALLOW=1` | 對工作區內工具授予 `permissionOverrides`。 |
 | `JUST_AGY_MAX_DIRECT_EDITS=<int>` | 主控每回合可直接編輯的不同檔案數（預設 3）。 |
 | `JUST_AGY_ALLOW_DIRECT_LOGS=1` | 允許直接讀取 `.log` 與逐字稿檔。 |
+| `JUST_AGY_SMALL_LOG_BYTES=<int>` | 主控可直接讀取的日誌或逐字稿大小上限（須為絕對路徑的一般檔案；預設 16384，即 16 KiB；`0` 停用此例外）。 |
 | `JUST_AGY_ALLOW_DIRECT_FASTPATH=1` | 停用直接編輯上限與「編輯後測試」阻擋。 |
 | `JUST_AGY_CIRCUIT_BREAKER=0` | 停用連續兩次失敗的斷路器。 |
 | `JUST_AGY_DEBUG=1` | 每次 hook 呼叫附加一行 JSON 至 `just_agy_orchestrator_debug.log`。 |

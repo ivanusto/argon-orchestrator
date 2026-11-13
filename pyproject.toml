@@ -3,7 +3,7 @@
 # 3.11+ (tomllib).
 [project]
 name = "just-agy-orchestrator"
-version = "3.0.1"
+version = "3.0.2"
 description = "Antigravity (agy)-only orchestration hooks: a frontier primary model routes subagents to flash or flash_lite"
 requires-python = ">=3.8"
 license = "MIT"

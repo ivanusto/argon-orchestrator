@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.2 - 2026-11-13
+
+### Changed
+- Report length check: markdown links whose target starts with `file://` are collapsed to their link text (or `link` if empty) before measuring; http(s) links are unchanged. The limit stays 1,600 characters. In real agy 1.5.7 (Gemini 4 Hydrogen) data, 6 of 22 subagent reports failed as too long; in 4 of them the excess was `[calc.py](file:///.../calc.py#L1-L2)` citations (up to 9 per report), which agy's own system prompt asks agents to write. Those 4 now pass; the 2 verbatim log dumps still fail.
+- Context-hygiene guard: the primary may read a log or transcript directly when it is a regular file of at most 16 KiB (`SMALL_LOG_MAX_BYTES = 16 * 1024`) at an absolute path; any `OSError` keeps blocking. This avoids a scout round trip for a 25-line log. Override with `JUST_AGY_SMALL_LOG_BYTES` (legacy `AGY_ARGON_SMALL_LOG_BYTES`); `0` disables, an invalid value uses the default. `JUST_AGY_ALLOW_DIRECT_LOGS=1` is unchanged.
+- A `file://` link target longer than 512 characters is counted in full, so the link form cannot carry a long payload past the limit.
 ## 3.0.1 - 2026-11-13
 
 ### Added

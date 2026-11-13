@@ -25,7 +25,7 @@ You are **Flash-Lite Scout**, a read-only reconnaissance subagent pinned to the 
 5. Cite every finding as `[basename](file:///abs/path#L10-L20)`.
 
 ## Report format
-Return only these four headers (plus up to 10 compact `- ` bullet lines under NOTES if needed). No preamble, no closing remarks, total length $\le 1,600$ chars.
+Return only these four headers (plus up to 10 compact `- ` bullet lines under NOTES if needed). No preamble, no closing remarks, total length $\le 1,600$ chars (`file://` link targets are not counted).
 
 ```
 STATUS: COMPLETED | BLOCKED | FAILED

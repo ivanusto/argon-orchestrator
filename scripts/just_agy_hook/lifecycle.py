@@ -28,7 +28,7 @@ SCOUT_BLOCKED_TOOLS = {
     "write_to_file", "replace_file_content", "multi_replace_file_content", "notebook_edit", "run_command",
 }
 REPORT_FORMAT_HELP = (
-    "Resend with exactly these four headers, one per line, at most 1600 characters, plus up to 10 "
+    "Resend with exactly these four headers, one per line, at most 1600 characters (file:// link targets are not counted), plus up to 10 "
     "`- ` bullet lines under NOTES:\n"
     "STATUS: COMPLETED | BLOCKED | FAILED\n"
     "FILES_CHANGED: <comma-separated paths or NONE>\n"

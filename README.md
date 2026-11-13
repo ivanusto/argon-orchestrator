@@ -35,7 +35,7 @@ Supported primary models (as offered by agy 1.4.6 and later): **Gemini 4 Argon (
 | `PreToolUse` `send_message` | Denies code-change or multi-step follow-ups to a `flash_lite` recipient. Validates a subagent's own report to its parent and denies an invalid one once so it resends. |
 | `PreToolUse` `run_workflow` / `define_subagent` | Denies `agent(...)` calls without `model="flash"` or `"flash_lite"`; forces `enable_subagent_tools=false`. |
 | `PreToolUse` scout layer | `flash-lite-scout` subagents are limited to read-only tools and commands. |
-| `PreToolUse` hygiene and fast path | Blocks direct primary reads of `.log` and `transcript.jsonl`; caps direct edits (default 3 files per turn) and edit-then-test loops. |
+| `PreToolUse` hygiene and fast path | Blocks direct primary reads of `.log` and `transcript.jsonl` (files up to 16 KiB are allowed); caps direct edits (default 3 files per turn) and edit-then-test loops. |
 | `PostToolUse` | Pairs subagents with metadata and tracks failure streaks for the circuit breaker. |
 | `Stop` | Asks once to merge or discard and kill live `Workspace:"branch"` workers. |
 
@@ -59,7 +59,7 @@ The agy `Role` is only a label (for example "Add Scout") and does not affect rou
 
 **Note on `inheritCustomizations`.** The bundled agents set `inheritCustomizations: false`, so agy does not run plugin hooks inside `flash-lite-scout` or `flash-worker` subagents. Subagent-side report rejection (deny-once on `send_message`) and the scout read-only layer therefore only fire for subagent types that inherit customizations (built-in research/self). For the bundled types, the primary-side message scan (invalid-report ephemeral notice) and scout-failure escalation do the work, and agy itself enforces the agent tool lists (verified: a scout given an edit task could not edit).
 
-The contract is `STATUS`, `FILES_CHANGED`, `VERIFICATION`, `NOTES`; up to 10 bullets under `NOTES`; at most 1,600 characters; a `file://` log URI when `BLOCKED` or `FAILED`.
+The contract is `STATUS`, `FILES_CHANGED`, `VERIFICATION`, `NOTES`; up to 10 bullets under `NOTES`; at most 1,600 characters (the `file://` target of a markdown link such as `[calc.py](file:///abs/calc.py#L1-L2)` is not counted, only its text); a `file://` log URI when `BLOCKED` or `FAILED`.
 
 ---
 
@@ -88,6 +88,7 @@ The settings use the `JUST_AGY_*` prefix. The old `AGY_ARGON_*` names (and `AGY_
 | `JUST_AGY_AUTO_ALLOW=1` | Grant `permissionOverrides` for in-workspace tools. |
 | `JUST_AGY_MAX_DIRECT_EDITS=<int>` | Distinct workspace files the primary may edit per turn (default 3). |
 | `JUST_AGY_ALLOW_DIRECT_LOGS=1` | Allow direct reads of `.log` and transcript files. |
+| `JUST_AGY_SMALL_LOG_BYTES=<int>` | Size limit for direct primary reads of a log or transcript that is a regular file at an absolute path (default 16384 = 16 KiB; `0` disables the exception). |
 | `JUST_AGY_ALLOW_DIRECT_FASTPATH=1` | Disable the direct-edit cap and edit-then-test block. |
 | `JUST_AGY_CIRCUIT_BREAKER=0` | Disable the two-failure circuit breaker. |
 | `JUST_AGY_DEBUG=1` | Append one JSON line per hook call to `just_agy_orchestrator_debug.log`. |

@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 
 from .common import (
     LOG_OR_TRANSCRIPT_RE,
+    is_small_regular_file,
     MUTATION_TOOLS,
     READ_TOOLS,
     SAFE_TERMINATION_REASONS,
@@ -199,10 +200,10 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
                 or args.get("File")
                 or ""
             )
-            if target and LOG_OR_TRANSCRIPT_RE.search(target.replace("\\", "/")):
+            if target and LOG_OR_TRANSCRIPT_RE.search(target.replace("\\", "/")) and not is_small_regular_file(target):
                 return _deny(
                     f"[Just agy Orchestrator] Direct inspection of log/transcript file '{Path(target).name}' "
-                    "by the primary agent is blocked for context hygiene. "
+                    "by the primary agent is blocked for context hygiene (files up to 16 KiB are allowed). "
                     "Delegate log slicing to `flash-lite-scout` (TypeName='flash-lite-scout')."
                 )
 

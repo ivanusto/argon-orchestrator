@@ -2,6 +2,7 @@
 
 import os
 import re
+import stat
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 
@@ -49,6 +50,33 @@ LOG_OR_TRANSCRIPT_RE = re.compile(
     r"(?:^|[/\\])(?:transcript(?:_full)?\.jsonl|[^/\\]+\.log)$",
     re.IGNORECASE,
 )
+SMALL_LOG_MAX_BYTES = 16 * 1024
+
+
+def small_log_max_bytes() -> int:
+    """Largest log/transcript the primary may read directly (JUST_AGY_SMALL_LOG_BYTES; 0 disables; invalid -> default)."""
+    raw = _env("SMALL_LOG_BYTES").strip()
+    if not raw:
+        return SMALL_LOG_MAX_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        return SMALL_LOG_MAX_BYTES
+    return SMALL_LOG_MAX_BYTES if value < 0 else value
+
+
+def is_small_regular_file(target: str) -> bool:
+    """True for an absolute path to a regular file of at most small_log_max_bytes(); any OSError -> False."""
+    limit = small_log_max_bytes()
+    if limit <= 0 or not target or not os.path.isabs(os.path.expanduser(target)):
+        return False
+    try:
+        st = os.stat(os.path.expanduser(target))
+    except OSError:
+        return False
+    return stat.S_ISREG(st.st_mode) and st.st_size <= limit
+
+
 READ_TOOLS = {"view_file", "view_file_outline", "view_code_item"}
 MUTATION_TOOLS = {
     "write_to_file", "replace_file_content", "multi_replace_file_content",
