@@ -10,26 +10,44 @@ from .common import ALLOWED_PRIMARY_MODELS, DEFAULT_PRIMARY_MODEL, _env, _env_fl
 
 
 SMALL_TIER_RE = re.compile(r"\b(flash|lite|mini|nano|haiku)\b", re.IGNORECASE)
-# Frontier primaries: Gemini 4 Argon or Carbon Medium/High and Claude Opus/Sonnet (any version).
-# Argon/Carbon Low, Flash, GPT-OSS and every other model are not frontier.
-FRONTIER_TOKENS = ("argon", "carbon", "claude", "opus", "sonnet")
-ALLOWED_PRIMARY_TEXT = "Gemini 4 Argon or Carbon (Medium or High) or Claude Opus/Sonnet"
+# Frontier primaries: Gemini 4 Argon or Carbon Medium/High, Gemini 4 Hydrogen High/XHigh (agy 1.5.7+),
+# the agy Orchestrator (Carbon/Argon, plans with Carbon/Argon and executes with Hydrogen internally),
+# and Claude Opus/Sonnet (any version). Argon/Carbon Low, Hydrogen Low/Medium, Flash, GPT-OSS and
+# every other model are not frontier.
+FRONTIER_TOKENS = ("argon", "carbon", "hydrogen", "orchestrator", "claude", "opus", "sonnet")
+ALLOWED_PRIMARY_TEXT = (
+    "Gemini 4 Argon or Carbon (Medium or High), Gemini 4 Hydrogen (High or XHigh), "
+    "agy Orchestrator, or Claude Opus/Sonnet"
+)
 
 
 def is_frontier_tier(model_name: str) -> bool:
-    """True for Gemini 4 Argon/Carbon Medium/High and Claude Opus/Sonnet, by display name or id."""
+    """True for Gemini 4 Argon/Carbon Medium/High, Gemini 4 Hydrogen High/XHigh, the agy Orchestrator
+    and Claude Opus/Sonnet, by display name or id."""
     normalized = re.sub(r"[_\s]+", "-", (model_name or "").strip().lower())
     if not normalized or normalized in {"auto", "none", "inherit"}:
         return False
     words = re.sub(r"[^a-z0-9.]+", " ", normalized)
     if SMALL_TIER_RE.search(words):
         return False
+    if "orchestrator" in words:
+        return True
+    if "hydrogen" in words:
+        return not re.search(r"\b(low|medium)\b", words)
     if "argon" in words or "carbon" in words:
         return not re.search(r"\blow\b", words)
     return any(token in words for token in ("claude", "opus", "sonnet"))
 
 
 is_argon_tier = is_frontier_tier  # legacy alias
+
+# agy Orchestrator (Carbon) hands execution to an internal executor after exit_plan_mode; hook payloads
+# then report this model. Users cannot select it, so it is accepted as part of the Orchestrator.
+ORCHESTRATOR_EXECUTOR_MODELS = frozenset({"gemini-flash-worker-agy"})
+
+
+def is_orchestrator_executor(model_name: str) -> bool:
+    return (model_name or "").strip().lower() in ORCHESTRATOR_EXECUTOR_MODELS
 
 
 def settings_path() -> str:

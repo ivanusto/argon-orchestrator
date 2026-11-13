@@ -106,12 +106,18 @@ class TestPrimaryModelList(unittest.TestCase):
                      "gemini-4-argon-high", "Claude Opus 5.5 (High)", "claude-opus-5-5-low",
                      "Claude Sonnet 5.5 (Medium)", "claude-sonnet-5-5-medium", "Claude 3 Opus",
                      "Gemini 4 Carbon (Medium)", "Gemini 4 Carbon (High)", "gemini-4-carbon-medium",
-                     "gemini-4-carbon-high"):
+                     "gemini-4-carbon-high",
+                     "gemini-4-hydrogen-high", "gemini-4-hydrogen-xhigh", "gemini-4-hydrogen",
+                     "Gemini 4 Hydrogen (High)", "Gemini 4 Hydrogen (XHigh)",
+                     "Gemini 4 Hydrogen (Extra High)", "gemini-pro-orchestrator",
+                     "gemini-pro-orchestrator-argon", "Orchestrator (Carbon)", "Orchestrator (Argon)"):
             self.assertTrue(eo.is_argon_tier(name), name)
 
     def test_not_frontier(self):
         for name in ("Gemini 4 Argon (Low)", "gemini-4-argon-low", "Gemini 4 Carbon (Low)",
-                     "gemini-4-carbon-low", "gemini-3.8-flash-high",
+                     "gemini-4-carbon-low", "gemini-3.8-flash-high", "gemini-4-hydrogen-low",
+                     "gemini-4-hydrogen-medium", "Gemini 4 Hydrogen (Low)", "Gemini 4 Hydrogen (Medium)",
+                     "Gemini 3.8 Flash (High)",
                      "GPT-OSS 120B (Medium)", "gpt-oss-120b-medium", "gpt-5", "o3", "deepseek-v4",
                      "grok-3", "gemini-3.1-pro", "gemini-ultra", "claude-3-5-haiku", "", "auto"):
             self.assertFalse(eo.is_argon_tier(name), name)
@@ -169,6 +175,27 @@ class TestPreInvocationWarnings(AgyBase):
     def test_no_warning_for_carbon_id(self):
         p = dict(self.primary(), modelName="gemini-4-carbon-high")
         self.assertEqual(eo.handle_pre_invocation(p), {})
+
+    def test_hydrogen_high_ok_medium_warns(self):
+        p = dict(self.primary(), modelName="gemini-4-hydrogen-high")
+        self.assertEqual(eo.handle_pre_invocation(p), {})
+        p = dict(self.primary(), modelName="gemini-4-hydrogen-medium")
+        res = eo.handle_pre_invocation(p)
+        self.assertIn("Hydrogen (High or XHigh)", res["injectSteps"][0]["ephemeralMessage"])
+
+    def test_orchestrator_executor_model(self):
+        from just_agy_hook import models
+        self.assertTrue(models.is_orchestrator_executor("gemini-flash-worker-agy"))
+        self.assertTrue(models.is_orchestrator_executor(" GEMINI-FLASH-WORKER-AGY "))
+        self.assertFalse(models.is_orchestrator_executor("gemini-3.8-flash-high"))
+        self.assertFalse(models.is_orchestrator_executor("flash-worker"))
+        self.assertFalse(models.is_frontier_tier("gemini-flash-worker-agy"))
+
+    def test_executor_model_no_warning_but_flash_warns(self):
+        p = dict(self.primary(), modelName="gemini-flash-worker-agy")
+        self.assertEqual(eo.handle_pre_invocation(p), {})
+        p = dict(self.primary(), modelName="gemini-3.8-flash-high")
+        self.assertIn("injectSteps", eo.handle_pre_invocation(p))
 
     def test_no_warning_for_frontier_primary(self):
         self.assertEqual(eo.handle_pre_invocation(self.primary()), {})

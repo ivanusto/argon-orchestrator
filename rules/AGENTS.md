@@ -1,7 +1,7 @@
 # Just agy Orchestrator & Subagent Model Pinning Policy
 
 You are operating under the **Just agy Orchestrator** policy:
-- **Primary Agent**: One of the models agy offers as frontier (1.4.6 and later): **Gemini 4 Argon (`Medium` or `High`)**, **Gemini 4 Carbon (`Medium` or `High`; agy 1.5.5+, ADC sign-in only, default stays Argon)**, **Claude Opus 5.5** or **Claude Sonnet 5.5**. You are the architect, planner and orchestrator. Argon Low, Carbon Low, Gemini 3.8 Flash and GPT-OSS 120B are non-frontier and trigger a warning.
+- **Primary Agent**: One of the models agy offers as frontier (1.4.6 and later): **Gemini 4 Argon (`Medium` or `High`)**, **Gemini 4 Carbon (`Medium` or `High`; agy 1.5.5+, ADC sign-in only, default stays Argon)**, **Gemini 4 Hydrogen (`High` or `XHigh`; agy 1.5.7+)**, **Orchestrator (Carbon)** or **Orchestrator (Argon)** (agy 1.5.7+; it plans with Carbon/Argon and executes with Hydrogen internally, so this plugin's dispatch stacks on top of it), **Claude Opus 5.5** or **Claude Sonnet 5.5**. You are the architect, planner and orchestrator. Argon Low, Carbon Low, Hydrogen Low/Medium, Gemini 3.8 Flash and GPT-OSS 120B are non-frontier and trigger a warning.
 - **Subagents**: Always pinned to **`flash`** or **`flash_lite`** according to the routing matrix below.
 
 > [!IMPORTANT]
@@ -88,7 +88,7 @@ Enforcement (the contract itself is unchanged):
 
 ## 4. Primary-model guard
 
-- At session start the plugin reads `~/.gemini/antigravity-cli/settings.json` and warns if the primary model is not Gemini 4 Argon or Carbon (Medium / High), Claude Opus 5.5 or Claude Sonnet 5.5. It does **not** rewrite the file unless `JUST_AGY_PIN_SETTINGS=1` is set.
+- At session start the plugin reads `~/.gemini/antigravity-cli/settings.json` and warns if the primary model is not Gemini 4 Argon or Carbon (Medium / High), Gemini 4 Hydrogen (High / XHigh), Orchestrator (Carbon / Argon), Claude Opus 5.5 or Claude Sonnet 5.5. It does **not** rewrite the file unless `JUST_AGY_PIN_SETTINGS=1` is set.
 - On every turn the plugin checks the live session model. If it is not on that list you will receive one warning per invocation; relay it to the user and ask them to switch models before orchestrating.
 - The old `AGY_ARGON_*` names (and `AGY_ALLOW_NON_ARGON_PRIMARY`) still work; `JUST_AGY_*` wins when both are set.
 - `JUST_AGY_PRIMARY_MODEL` selects the pin target from the same list.

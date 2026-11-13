@@ -30,7 +30,13 @@ from .lifecycle import (
     scan_new_messages,
 )
 from .common import SCOUT_TYPE
-from .models import ALLOWED_PRIMARY_TEXT, POLICY_NOTICE, check_primary_model_settings, is_frontier_tier
+from .models import (
+    ALLOWED_PRIMARY_TEXT,
+    POLICY_NOTICE,
+    check_primary_model_settings,
+    is_frontier_tier,
+    is_orchestrator_executor,
+)
 from .state import _releases_state_locks, _state_file, load_state, save_state, sync_subagents
 from .tools import (
     _handle_define_subagent,
@@ -100,7 +106,13 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
             })
 
     model_name = str(payload.get("modelName") or "")
-    if not is_sub and model_name and not is_frontier_tier(model_name) and not _env_flag("ALLOW_NON_PRIMARY"):
+    if (
+        not is_sub
+        and model_name
+        and not is_frontier_tier(model_name)
+        and not is_orchestrator_executor(model_name)
+        and not _env_flag("ALLOW_NON_PRIMARY")
+    ):
         key = f"{payload.get('conversationId', '')}:{payload.get('invocationNum', 0)}"
         warned: List[str] = state.setdefault("warned_invocations", [])
         if key not in warned:

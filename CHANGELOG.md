@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.1 - 2026-11-13
+
+### Added
+- Gemini 4 Hydrogen (agy 1.5.7; ids `gemini-4-hydrogen-low|medium|high|xhigh`, plain `gemini-4-hydrogen` is High) is a frontier primary at High and XHigh (also "Extra High"); Low and Medium are warned about.
+- agy Orchestrator (`gemini-pro-orchestrator` = "Orchestrator (Carbon)", `gemini-pro-orchestrator-argon` = "Orchestrator (Argon)") is a frontier primary. It plans with Carbon/Argon and executes with Hydrogen internally, so the plugin's dispatch stacks on top of it.
+- `Gemini 4 Hydrogen (High)`, `(XHigh)`, `Orchestrator (Carbon)` and `Orchestrator (Argon)` are valid `JUST_AGY_PRIMARY_MODEL` pin targets. The default stays `Gemini 4 Argon (High)`.
+- agy Orchestrator (Carbon) hands execution to an internal executor that hook payloads report as `gemini-flash-worker-agy`; it is accepted and no longer triggers the non-frontier warning.
+- agy 1.5.7 verification: TBD
+
 ## 3.0.0 - 2026-11-11
 
 ### Breaking: renamed to just-agy-orchestrator

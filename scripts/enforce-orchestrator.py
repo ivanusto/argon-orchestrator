@@ -8,7 +8,7 @@ Modes (first CLI argument):
 session-start
     Reads ~/.gemini/antigravity-cli/settings.json and injects the orchestration
     policy notice. By default it only WARNS when the configured primary model is
-    not Gemini 4 Argon Medium/High or Claude Opus/Sonnet. Set AGY_ARGON_PIN_SETTINGS=1 to opt in to the
+    not Gemini 4 Argon/Carbon Medium/High, Hydrogen High/XHigh, Orchestrator or Claude Opus/Sonnet. Set AGY_ARGON_PIN_SETTINGS=1 to opt in to the
     legacy behaviour that rewrites settings.json back to an Argon model.
 
 pre-invocation
@@ -115,6 +115,7 @@ from just_agy_hook.common import (  # noqa: F401,E402
 )
 from just_agy_hook.models import (  # noqa: F401,E402
     FRONTIER_TOKENS,
+    ORCHESTRATOR_EXECUTOR_MODELS,
     POLICY_NOTICE,
     SMALL_TIER_RE,
     _read_settings,
@@ -122,6 +123,7 @@ from just_agy_hook.models import (  # noqa: F401,E402
     check_primary_model_settings,
     is_argon_tier,
     is_frontier_tier,
+    is_orchestrator_executor,
     settings_path,
 )
 from just_agy_hook.routing import (  # noqa: F401,E402

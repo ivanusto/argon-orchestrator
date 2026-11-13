@@ -4,7 +4,7 @@
 
 僅支援 Antigravity（`agy`）的外掛。以尖端模型擔任主控代理，並透過具信心分數的規則引擎，將每個子代理路由至 `flash` 或 `flash_lite`；同時管制高風險工具呼叫，並強制子代理使用有界的四標頭回報格式。
 
-支援的主控模型（以 agy 1.4.6 起的提供者為準）：**Gemini 4 Argon（Medium / High）**、**Gemini 4 Carbon（Medium / High）**（agy 1.5.5 以上，僅限 ADC 登入；預設仍為 Argon）、**Claude Opus 5.5**、**Claude Sonnet 5.5**。Argon Low、Carbon Low、Gemini 3.8 Flash 與 GPT-OSS 120B 會被警告為非尖端模型。
+支援的主控模型（以 agy 1.4.6 起的提供者為準）：**Gemini 4 Argon（Medium / High）**、**Gemini 4 Carbon（Medium / High）**（agy 1.5.5 以上，僅限 ADC 登入；預設仍為 Argon）、**Gemini 4 Hydrogen（High / XHigh）**、**Orchestrator（Carbon）** / **Orchestrator（Argon）**（agy 1.5.7 以上）、**Claude Opus 5.5**、**Claude Sonnet 5.5**。agy Orchestrator 內部已將規劃（Carbon/Argon）與執行（Hydrogen）分工，因此本外掛的派工是疊加在其上。Orchestrator (Carbon) 在規劃結束（`exit_plan_mode`）後交給內部執行者，hook 收到的 `modelName` 會變成 `gemini-flash-worker-agy`，本外掛視為 Orchestrator 的一部分，不發非尖端警告。Argon Low、Carbon Low、Hydrogen Low/Medium、Gemini 3.8 Flash 與 GPT-OSS 120B 會被警告為非尖端模型。
 
 ---
 
@@ -12,7 +12,7 @@
 
 | 層級 | 模型 | 職責 |
 | :--- | :--- | :--- |
-| **主控代理** | Gemini 4 Argon 或 Carbon（Medium / High）、Claude Opus 5.5、Claude Sonnet 5.5 | 架構設計、規劃、跨模組重構、安全審查與最終彙整。 |
+| **主控代理** | Gemini 4 Argon 或 Carbon（Medium / High）、Gemini 4 Hydrogen（High / XHigh）、Orchestrator（Carbon / Argon）、Claude Opus 5.5、Claude Sonnet 5.5 | 架構設計、規劃、跨模組重構、安全審查與最終彙整。 |
 | **第一層（`flash-worker`）** | `flash` | 跨檔案研究、網頁與文件查詢、撰寫與執行測試、範圍明確的修改與除錯。 |
 | **第二層（`flash-lite-scout`）** | `flash_lite` | 唯讀查詢：檔案、符號、grep/glob、git 與日誌檢查、單一檔案檢視。 |
 

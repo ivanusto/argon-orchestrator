@@ -4,7 +4,7 @@
 
 An Antigravity (`agy`) only plugin. It keeps a frontier model as the primary orchestrator and routes every subagent to `flash` or `flash_lite` with a confidence-scored rule engine, guards the risky tool calls, and enforces a bounded four-header subagent report.
 
-Supported primary models (as offered by agy 1.4.6 and later): **Gemini 4 Argon (Medium / High)**, **Gemini 4 Carbon (Medium / High)** (agy 1.5.5+, ADC sign-in only; the default stays Argon), **Claude Opus 5.5**, **Claude Sonnet 5.5**. Argon Low, Carbon Low, Gemini 3.8 Flash and GPT-OSS 120B are warned about as non-frontier.
+Supported primary models (as offered by agy 1.4.6 and later): **Gemini 4 Argon (Medium / High)**, **Gemini 4 Carbon (Medium / High)** (agy 1.5.5+, ADC sign-in only; the default stays Argon), **Gemini 4 Hydrogen (High / XHigh)** and **Orchestrator (Carbon)** / **Orchestrator (Argon)** (agy 1.5.7+), **Claude Opus 5.5**, **Claude Sonnet 5.5**. The agy Orchestrator splits planning (Carbon/Argon) and execution (Hydrogen) internally, so this plugin's dispatch stacks on top of it. After planning ends (`exit_plan_mode`) Orchestrator (Carbon) hands execution to an internal executor whose hook payloads report `modelName` as `gemini-flash-worker-agy`; the plugin treats it as part of the Orchestrator and does not issue the non-frontier warning. Argon Low, Carbon Low, Hydrogen Low/Medium, Gemini 3.8 Flash and GPT-OSS 120B are warned about as non-frontier.
 
 ---
 
@@ -12,7 +12,7 @@ Supported primary models (as offered by agy 1.4.6 and later): **Gemini 4 Argon (
 
 | Tier | Model | Role |
 | :--- | :--- | :--- |
-| **Primary orchestrator** | Gemini 4 Argon or Carbon (Medium / High), Claude Opus 5.5, Claude Sonnet 5.5 | Architecture, planning, cross-cutting refactors, security review, final synthesis. |
+| **Primary orchestrator** | Gemini 4 Argon or Carbon (Medium / High), Gemini 4 Hydrogen (High / XHigh), Orchestrator (Carbon / Argon), Claude Opus 5.5, Claude Sonnet 5.5 | Architecture, planning, cross-cutting refactors, security review, final synthesis. |
 | **Tier 1 (`flash-worker`)** | `flash` | Multi-file research, web and documentation work, writing and running tests, scoped edits and debugging. |
 | **Tier 2 (`flash-lite-scout`)** | `flash_lite` | Read-only lookups: files, symbols, grep/glob, git and log checks, single-file inspection. |
 

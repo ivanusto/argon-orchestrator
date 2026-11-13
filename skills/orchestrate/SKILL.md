@@ -1,7 +1,7 @@
 ---
 name: orchestrate
 description: >-
-  Structured 4-phase orchestration workflow that keeps a frontier primary agent (Gemini 4 Argon or Carbon Medium / High (Carbon: agy 1.5.5+, ADC sign-in only; default stays Argon), Claude Opus 5.5 or Claude Sonnet 5.5)
+  Structured 4-phase orchestration workflow that keeps a frontier primary agent (Gemini 4 Argon or Carbon Medium / High (Carbon: agy 1.5.5+, ADC sign-in only; default stays Argon), Gemini 4 Hydrogen High / XHigh or Orchestrator Carbon / Argon (agy 1.5.7+), Claude Opus 5.5 or Claude Sonnet 5.5)
   as architect/coordinator and dispatches subagents pinned to flash_lite (for fast reconnaissance,
   searches, log checks, and single-file inspection) or flash (for multi-file analysis, test runs,
   and scoped code edits). Activate when the user invokes /orchestrate or requests multi-agent
@@ -10,7 +10,7 @@ description: >-
 
 # Just agy Orchestrator Workflow (`/orchestrate`)
 
-Execute complex tasks using a 4-phase hierarchical orchestration loop with a frontier model (**Gemini 4 Argon `Medium` / `High`**, **Gemini 4 Carbon `Medium` / `High`** (agy 1.5.5+, ADC sign-in only; default stays Argon), **Claude Opus 5.5** or **Claude Sonnet 5.5**) as the primary agent and context-pinned **`flash_lite`** / **`flash`** subagents.
+Execute complex tasks using a 4-phase hierarchical orchestration loop with a frontier model (**Gemini 4 Argon `Medium` / `High`**, **Gemini 4 Carbon `Medium` / `High`** (agy 1.5.5+, ADC sign-in only; default stays Argon), **Gemini 4 Hydrogen `High` / `XHigh`** and **Orchestrator (Carbon / Argon)** (agy 1.5.7+; Orchestrator plans and executes internally, so this plugin's dispatch stacks on top of it), **Claude Opus 5.5** or **Claude Sonnet 5.5**) as the primary agent and context-pinned **`flash_lite`** / **`flash`** subagents.
 
 ---
 
